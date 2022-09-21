@@ -1,0 +1,152 @@
+#pragma once
+
+#include "nlsat/nlsat_types.h"
+#include "nlsat/nlsat_clause.h"
+#include "nlsat/nlsat_assignment.h"
+#include "util/hashtable.h"
+#include "nlsat/nlsat_solver.h"
+/**
+ * @brief Dynamic Manager for nlsat
+ */
+
+#define DTRACE(CODE) TRACE("dnlsat", CODE)
+
+namespace nlsat {
+    using literal_index = var;
+    using atom_index = var;
+    using clause_index = var;
+
+    // hastable for var
+    struct var_hash {
+        unsigned operator()(var x) const {
+            return x;
+        }
+    };
+
+    struct var_eq {
+        bool operator()(var x, var y) const {
+            return x == y;
+        }
+    };
+
+    using var_table = hashtable<var, var_hash, var_eq>;
+    using var_pair = std::pair<var, var>;
+    using var_vector_vector = vector<var_vector>;
+    using var_table_vector = vector<var_table>;
+
+    class dynamic_atom {
+    private:
+        atom_index m_index;
+        atom const * m_atom;
+    public:
+        var_table m_vars;
+        dynamic_atom(atom_index id, atom const * at, var_table const & vars): m_index(id), m_atom(at), m_vars(vars) {}
+        ~dynamic_atom(){}
+
+        unsigned get_index() const {
+            return m_index;
+        }
+
+        atom const * get_atom() const {
+            return m_atom;
+        }
+    };
+
+    class dynamic_clause {
+    private:
+        clause_index m_index;
+        clause const * m_clause;
+        var_pair m_watched_var;
+    public:
+        var_table m_vars;
+        dynamic_clause(clause_index id, clause const * cls, var_table const & vars): m_index(id), m_clause(cls), m_vars(vars) {
+            m_watched_var = var_pair(null_var, null_var);
+        }
+        ~dynamic_clause(){}
+
+        unsigned get_index() const {
+            return m_index;
+        }
+
+        clause const * get_clause() const {
+            return m_clause;
+        }
+
+        void set_watched_var(var x, var y) {
+            m_watched_var.first = x;
+            m_watched_var.second = y;
+        }
+
+        var get_another_watched_var(var x) const {
+            SASSERT(m_watched_var.first == x || m_watched_var.second == x);
+            return m_watched_var.first - x + m_watched_var.second;
+        }
+    };
+
+    using dynamic_atom_vector = vector<dynamic_atom *>;
+    using dynamic_clause_vector = vector<dynamic_clause *>;
+
+    class Dynamic_manager {
+    public:
+        struct imp;
+    private:
+        imp * m_imp;
+    public:
+        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, solver & s, clause_vector const & clauses, clause_vector & learned, 
+        atom_vector const & atoms, unsigned & restart, unsigned & deleted);
+        ~Dynamic_manager();
+
+        void set_var_num(unsigned x);
+        void init_search();
+
+        void init_learnt_management();
+        void update_learnt_management();
+        void init_nof_conflicts();
+        void minimize_learned();
+
+        void reset_curr_conflicts();
+        void inc_curr_conflicts();
+        void reset_curr_literal_assign();
+        void inc_curr_literal_assign();
+        bool check_restart_requirement();
+
+        unsigned assigned_size() const;
+        void push_assigned_var(var x);
+        var get_last_assigned_var() const;
+        var get_assigned_var(var x) const;
+        var pop_last_var();
+
+        var vsids_select();
+        void bump_conflict_vars();
+        void var_decay_act();
+
+        void do_watched_clauses(var x);
+        void undo_watched_clauses(var x);
+
+        void find_next_process_clauses(var x, clause_vector & clauses);
+
+        void del_bool(bool_var b);
+        void del_clauses();
+        void register_atom(atom const * a);
+
+        void clause_bump_act(clause & cls);
+        void clause_decay_act();
+
+        void reset_conflict_vars();
+        void insert_conflict_from_bool(bool_var b);
+        void insert_conflict_from_literals(unsigned sz, literal const * ls);
+
+        var find_stage(var x) const;
+        var max_stage_literal(literal l) const;
+        var max_stage_lts(unsigned sz, literal const * cls) const;
+        bool all_assigned_bool(bool_var b) const;
+        bool same_stage_bool(bool_var b, var x) const;
+        bool same_stage_literal(literal l, var x) const;
+        var max_stage_var(atom const * a) const;
+        var max_stage_poly(poly const * p) const;
+        var max_stage_var_poly(poly const * p) const;
+        var max_stage_or_unassigned_ps(polynomial_ref_vector const & ps) const;
+        var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const;
+        var max_stage_or_unassigned_atom(atom const * a) const;
+    };
+};
