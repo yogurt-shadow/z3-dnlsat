@@ -113,12 +113,16 @@ namespace nlsat {
         clause_vector          m_learned; // set of learned clauses
         clause_vector          m_valids;
 
+        unsigned               m_num_pure_bools;
+        bool_var_vector        m_pure_bool_vars;
+        bool_var_vector        m_pure_bool_convert;
+        unsigned               m_num_hybrid_vars;
         unsigned               m_num_bool_vars;
         atom_vector            m_atoms;        // bool_var -> atom
         svector<lbool>         m_bvalues;      // boolean assignment
         unsigned_vector        m_levels;       // bool_var -> level
         svector<justification> m_justifications;
-        vector<clause_vector>  m_bwatches;     // bool_var (that are not attached to atoms) -> clauses where it is maximal
+        // vector<clause_vector>  m_bwatches;     // bool_var (that are not attached to atoms) -> clauses where it is maximal
         bool_vector          m_dead;         // mark dead boolean variables
         id_gen                 m_bid_gen;
 
@@ -132,6 +136,10 @@ namespace nlsat {
         enum branching_order {
             INC, DEC, RAND, VSIDS
         } m_branching_order;
+
+        enum search_mode {
+            BOOL, ARITH, INIT, FINISH
+        } m_search_mode;
 
         // m_perm:     internal -> external
         // m_inv_perm: external -> internal
@@ -260,7 +268,7 @@ namespace nlsat {
             m_num_bool_vars(0),
             m_display_var(m_perm),
             m_display_assumption(nullptr),
-            m_dm(m_am, m_pm, m_assignment, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted),
+            m_dm(m_am, m_pm, m_assignment, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted),
             m_explain(s, m_assignment, m_cache, m_atoms, m_var2eq, m_evaluator, m_dm),
             m_scope_lvl(0),
             m_lemma(s),
@@ -399,6 +407,8 @@ namespace nlsat {
 
         bool is_arith_literal(literal l) const { return is_arith_atom(l.var()); }
 
+        bool is_bool_literal(literal l) const { return m_atoms[l.var()] == nullptr; }
+
 
         static inline double drand(unsigned seed){
             random_gen r(++seed);
@@ -412,7 +422,7 @@ namespace nlsat {
             m_bvalues       .setx(b, l_undef, l_undef);
             m_levels        .setx(b, UINT_MAX, UINT_MAX);
             m_justifications.setx(b, null_justification, null_justification);
-            m_bwatches      .setx(b, clause_vector(), clause_vector());
+            // m_bwatches      .setx(b, clause_vector(), clause_vector());
             m_dead          .setx(b, false, true);
             return b;
         }
@@ -640,13 +650,6 @@ namespace nlsat {
             return b;
         }
 
-        void attach_clause(clause & cls) {
-            if(all_bool_clause(cls)){
-                bool_var b = max_bvar(cls);
-                m_bwatches[b].push_back(&cls);
-            }
-        }
-
         bool all_bool_clause(clause const & cls) const {
             for(unsigned i = 0; i < cls.size(); i++){
                 literal l = cls[i];
@@ -669,23 +672,6 @@ namespace nlsat {
             return b;
         }
 
-
-
-        void deattach_clause(clause & cls) {
-            // var x      = max_var(cls);
-            // if (x != null_var) {
-            //     m_watches[x].erase(&cls);
-            // }
-            // else {
-            //     bool_var b = max_bvar(cls);
-            //     m_bwatches[b].erase(&cls);
-            // }
-            if(all_bool_clause(cls)){
-                bool_var b = max_bvar(cls);
-                m_bwatches[b].erase(&cls);
-            }
-        }
-
         void deallocate(clause * cls) {
             size_t obj_sz = clause::get_obj_size(cls->size());
             cls->~clause();
@@ -693,7 +679,6 @@ namespace nlsat {
         }
         
         void del_clause(clause * cls) {
-            deattach_clause(*cls);
             m_cid_gen.recycle(cls->id());
             unsigned sz = cls->size();
             for (unsigned i = 0; i < sz; i++)
@@ -920,21 +905,8 @@ namespace nlsat {
             }
             else{
                 m_clauses.push_back(cls);
-                // we do not collect vars here 
-                // because clause index may be changed after simplify
-
-                // unsigned index = m_clauses.size() - 1;
-                // TRACE("wzh", tout << "[dynamic] collect vars for clause " << index << std::endl;);
-                // var_vector curr_vars = get_vars_clause(index);
-                // m_clause_vars.setx(index, curr_vars, var_vector(0));
-                // m_clause_score.setx(index, curr_vars.size(), UINT_MAX);
-
                 SASSERT(m_clauses.size() == m_clause_vars.size());
             }
-            // wzh dynamic
-            
-            // hzw dynamic
-            attach_clause(*cls);
             return cls;
         }
 
@@ -980,8 +952,11 @@ namespace nlsat {
             m_levels[b]  = UINT_MAX;
             del_jst(m_allocator, m_justifications[b]);
             m_justifications[b] = null_justification;
-            if (m_atoms[b] == nullptr && b < m_bk)
+            // TODO: how to set m_bk for undo boolean assignment
+            // if (m_atoms[b] == nullptr && b < m_bk){
+            if(m_atoms[b] == nullptr){
                 m_bk = b;
+            }
         }
 
         void undo_set_updt(interval_set * old_set) {
@@ -994,14 +969,20 @@ namespace nlsat {
         }
 
         void undo_new_stage() {
-            var curr = m_dm.pop_last_var();
+            m_dm.pop_last_var();
             if(m_dm.assigned_size() == 0){
                 m_xk = null_var;
             }
             else{
-                m_xk = m_dm.get_last_assigned_var();
+                bool is_bool;
+                hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
+                if(v == null_var){
+                    return;
+                }
+                SASSERT(!is_bool);
+                m_xk = v;
                 m_assignment.reset(m_xk);
-                m_dm.undo_watched_clauses(m_xk);
+                m_dm.undo_watched_clauses(m_xk, false);
             }
         }
 
@@ -1153,6 +1134,10 @@ namespace nlsat {
             m_justifications[b] = j;
             save_assign_trail(b);
             updt_eq(b, j);
+            // if literal is pure bool, do watched clause for this bool var
+            if(m_atoms[b] == nullptr){
+                m_dm.do_watched_clauses(b, true);
+            }
             TRACE("nlsat_assign", tout << "[debug] bool assign: b" << b << " -> " << m_bvalues[b]  << "\n";);
         }
 
@@ -1163,35 +1148,22 @@ namespace nlsat {
             new_level();
             assign(l, decided_justification);
         }
-        
-        /**
-           \brief Return the value of a literal as defined in Dejan and Leo's paper.
-        */
-        lbool value(literal l) {
+
+        lbool value(literal l){
             lbool val = assigned_value(l);
-            if (val != l_undef) {            
-                // TRACE("nlsat_verbose", display(tout << " assigned value " << val << " for ", l) << "\n";);
+            if(val != l_undef){
                 return val;
             }
+            // bool literal
             bool_var b = l.var();
-            atom * a = m_atoms[b];
-            if (a == nullptr) {
-                // TRACE("nlsat_verbose", display(tout << " no atom for ", l) << "\n";);
+            if(m_atoms[b] == nullptr){
                 return l_undef;
             }
-            // var max = a->max_var();
-            // if (!m_assignment.is_assigned(max)) {
-            if(!m_dm.all_assigned_bool(b)){
-                // TRACE("wzh", display(tout << "[dynamic] not all assigned ", l) << "\n";);
-                // TRACE("wzh", display_assignment(tout););
+            // arith literal
+            if(!m_dm.all_assigned_bool_arith(b)){
                 return l_undef;
             }
-            val = to_lbool(m_evaluator.eval(a, l.sign()));
-            TRACE("nlsat_verbose", display(tout << " evaluated value " << val << " for ", l) << "\n";);
-            TRACE("value_bug", tout << "value of: "; display(tout, l); tout << " := " << val << "\n"; 
-                  tout << "xk: " << m_xk << "\n";
-                  display_assignment(tout););            
-            return val;
+            return to_lbool(m_evaluator.eval(m_atoms[b], l.sign()));
         }
 
         /**
@@ -1224,6 +1196,9 @@ namespace nlsat {
            \brief Process a clauses that contains only Boolean literals.
         */
         bool process_boolean_clause(clause const & cls) {
+            DTRACE(tout << "process boolean clause\n";
+                display(tout, cls); tout << std::endl;
+            );
             SASSERT(m_xk == null_var);
             unsigned num_undef   = 0;
             unsigned first_undef = UINT_MAX;
@@ -1244,8 +1219,10 @@ namespace nlsat {
             SASSERT(first_undef != UINT_MAX);
             if (num_undef == 1)
                 assign(cls[first_undef], mk_clause_jst(&cls)); // unit clause
-            else
+            else {
+                DTRACE(tout << "decide in process boolean clause\n";);
                 decide(cls[first_undef]);
+            }
             return true;
         }
         
@@ -1421,33 +1398,6 @@ namespace nlsat {
         }
 
         /**
-           \brief Try to satisfy the given clause. Return true if succeeded.
-
-           If satisfy_learned is true, then (arithmetic) learned clauses are satisfied even if m_lazy > 0
-        */
-        bool process_clause(clause const & cls, bool satisfy_learned) {
-            if (is_satisfied(cls))
-                return true;
-            if (m_xk == null_var)
-                return process_boolean_clause(cls);
-            else
-                return process_arith_clause(cls, satisfy_learned);
-        }
-
-        /**
-           \brief Try to satisfy the given "set" of clauses. 
-           Return 0, if the set was satisfied, or the violating clause otherwise
-        */
-        clause * process_clauses(clause_vector const & cs) {
-            for (clause* c : cs) {
-                if (!process_clause(*c, false))
-                    return c;
-            }
-            return nullptr; // succeeded
-        }
-
-
-        /**
            \brief Make sure m_bk is the first unassigned pure Boolean variable.
            Set m_bk == null_bool_var if there is no unassigned pure Boolean variable.
         */
@@ -1461,139 +1411,31 @@ namespace nlsat {
             m_bk = null_bool_var;
         }
 
-        /**
-           \brief Create a new stage. See Dejan and Leo's paper.
-        */
-        void new_stage() {
-            m_stages++;
-            save_new_stage_trail();
-            // wzh dynamic
-            // if (m_xk == null_var){
-            //     m_xk = 0;
-            // }
-            // else{
-            //     m_xk++;
-            // }
-            // hzw dynamic
-            select_next_arith_var();
-            // decrease_clause_score();
-            // TRACE("wzh", display_clause_vars(tout););
-        }
-
-        // arith var heuristic
-        void select_inc_var(){
-            TRACE("wzh", tout << "increasing" << std::endl;);
-            if(m_xk == null_var){
-                m_xk = 0;
+        // m_bk: atom index
+        void select_next_hybrid_var(){
+            if(m_dm.assigned_size() >= m_num_hybrid_vars){
+                m_xk = null_var;
+                m_bk = null_var;
+                m_dm.push_assigned_var(null_var, false);
+                m_search_mode = FINISH;
             }
             else {
-                if(m_dm.assigned_size() >= num_vars()){
+                bool is_bool;
+                hybrid_var v = m_dm.vsids_select(is_bool);
+                if(is_bool){
+                    m_bk = v;
                     m_xk = null_var;
+                    m_dm.push_assigned_var(m_pure_bool_convert[v], true);
+                    m_search_mode = BOOL;
                 }
-                else{
-                    m_xk++;
+                else {
+                    m_bk = null_var;
+                    m_xk = v;
+                    m_dm.push_assigned_var(v, false);
+                    m_search_mode = ARITH;
                 }
             }
-            TRACE("wzh", tout << "[dynamic] select next arith var: " << m_xk << " ";
-                m_display_var(tout, m_xk);
-                tout << " (increasing)" << std::endl;
-            );
-            m_dm.push_assigned_var(m_xk);
         }
-
-        void select_dec_var(){
-             // reverse select
-            TRACE("wzh", tout << "decreasing" << std::endl;);
-            if(m_dm.assigned_size() >= num_vars()){
-                m_xk = null_var;
-            }
-            else if(m_xk == null_var) {
-                m_xk = num_vars() - 1;
-            }
-            else{
-                m_xk --;
-            }
-            TRACE("wzh", tout << "[dynamic] select next arith var: " << m_xk << " ";
-                m_display_var(tout, m_xk);
-                tout << " (decreasing)" << std::endl;
-            );
-           m_dm.push_assigned_var(m_xk);
-            // end reverse
-        }
-
-        void select_rand_var(){
-            // random select
-            TRACE("wzh", tout << "random" << std::endl;);
-            if(m_dm.assigned_size() >= num_vars()){
-                m_xk = null_var;
-            }
-            else {
-                m_xk = random_select();
-            }
-            m_dm.push_assigned_var(m_xk);
-            // end random
-        }
-
-        void select_vsids_var(){
-            TRACE("wzh", tout << "VSIDS heuristic" << std::endl;);
-            if(m_dm.assigned_size() >= num_vars()){
-                m_xk = null_var;
-            }
-            else{
-                m_xk = vsids_select();
-            }
-            m_dm.push_assigned_var(m_xk);
-        }
-
-        // select max activity unassigned var
-        var vsids_select(){
-            return m_dm.vsids_select();
-        }
-
-
-        void select_next_arith_var(){
-            switch(m_branching_order){
-                case INC:
-                    select_inc_var();
-                    break;
-                
-                case DEC:
-                    select_dec_var();
-                    break;
-
-                case RAND:
-                    select_rand_var();
-                    break;
-
-                case VSIDS:
-                    select_vsids_var();
-                    break;
-
-                default:
-                    UNREACHABLE();
-                    break;
-            }
-        }
-
-        // randomly select next var
-        var random_select(){
-            var res = null_var;
-            random_gen r(++m_random_seed);
-            unsigned num = 1;
-            for(unsigned i = 0; i < num_vars(); i++){
-                // if(m_dynamic_vars.contains(i)){
-                if(m_assignment.is_assigned(i)){
-                    continue;
-                }
-                int k = r() % num;
-                if(k == 0){
-                    res = i;
-                }
-                num ++;
-            }
-            return res;
-        }
-        // hzw dynamic
 
         /**
            \brief Assign m_xk
@@ -1609,7 +1451,7 @@ namespace nlsat {
             if (!m_am.is_rational(w))
                 m_irrational_assignments++;
             m_assignment.set_core(m_xk, w);
-            m_dm.do_watched_clauses(m_xk);
+            m_dm.do_watched_clauses(m_xk, false);
         }
 
         void check_dynamic_satisfied() {
@@ -1639,24 +1481,157 @@ namespace nlsat {
         }
 
         bool is_satisfied() {
-            // if (m_bk == null_bool_var && m_xk >= num_vars()) {
-            TRACE("wzh", tout << "[dynamic] num of vars is: " << num_vars() << std::endl;);
-            if(m_bk == null_bool_var && m_dm.assigned_size() > num_vars()){
-            // if(m_bk == null_bool_var && m_xk == null_var){
+            if(m_dm.assigned_size() > m_num_hybrid_vars){
                 fix_patch();
                 SASSERT(check_satisfied(m_clauses));
                 DTRACE(check_dynamic_satisfied());
-                return true; // all variables were assigned, and all clauses were satisfied.
+                return true;
             }
-            else {
-                return false;
-            }
+            return false;
         }
 
         void restart(){
             init_search();
         }
 
+        clause * process_hybrid_clauses(clause_vector const & clauses){
+            for(auto ele: clauses){
+                if(!process_hybrid_clause(*ele, false)){
+                    return ele;
+                }
+            }
+            return nullptr;
+        }
+
+        inline bool is_bool_search() const {
+            return m_search_mode == BOOL;
+        }
+
+        inline bool is_arith_search() const {
+            return m_search_mode == ARITH;
+        }
+
+        bool process_hybrid_clause(clause const & cls, bool satisfy_learned){
+            if(m_search_mode == BOOL){
+                return process_hybrid_clause_bool(cls);
+            }
+            else if(m_search_mode == ARITH){
+                return process_hybrid_clause_arith(cls, satisfy_learned);
+            }
+            else {
+                UNREACHABLE();
+            }
+        }
+
+        // clauses left only bool var unassigned
+        bool process_hybrid_clause_bool(clause const & cls){
+            unsigned num_undef = 0;
+            unsigned first_undef = UINT_MAX;
+            for(unsigned i = 0; i < cls.size(); i++){
+                literal l = cls[i];
+                lbool val = value(l);
+                if(val == l_true){
+                    return true;
+                }
+                if(val == l_false){
+                    continue;
+                }
+                SASSERT(val == l_undef);
+                SASSERT(is_bool_literal(l));
+                num_undef++;
+                if (first_undef == UINT_MAX){
+                    first_undef = i;
+                }
+            }
+            if (num_undef == 0){
+                return false;
+            }
+            SASSERT(first_undef != UINT_MAX);
+            // unit propagation
+            if (num_undef == 1){
+                assign(cls[first_undef], mk_clause_jst(&cls)); 
+            }
+            // decide first undef
+            else {
+                DTRACE(tout << "decide in process boolean clause\n";);
+                decide(cls[first_undef]);
+            }
+        }
+
+        bool process_hybrid_clause_arith(clause const & cls, bool satisfy_learned){
+            if (!satisfy_learned && m_lazy >= 2 && cls.is_learned()) {
+                TRACE("nlsat", tout << "skip learned\n";);
+                return true; // ignore lemmas in super lazy mode
+            }
+            SASSERT(m_xk != null_var);
+            unsigned num_undef = 0;
+            unsigned first_undef = UINT_MAX;
+            interval_set_ref first_undef_set(m_ism);
+            interval_set * xk_set = m_infeasible[m_xk];
+            SASSERT(!m_ism.is_full(xk_set));
+            for(unsigned idx = 0; idx < cls.size(); idx++){
+                literal l = cls[idx];
+                checkpoint();
+                lbool val = value(l);
+                if(val == l_true){
+                    return true;
+                }
+                if(val == l_false){
+                    continue;
+                }
+                SASSERT(val == l_undef);
+                bool_var b = l.var();
+                atom * a = m_atoms[b];
+                SASSERT(a != nullptr);
+                interval_set_ref curr_st(m_ism);
+                curr_st = m_evaluator.infeasible_intervals(a, l.sign(), &cls, m_xk);
+                // true
+                if(m_ism.is_empty(curr_st)){
+                    R_propagate(l, nullptr);
+                    return true;
+                }
+                // false
+                if(m_ism.is_full(curr_st)){
+                    R_propagate(~l, nullptr);
+                    continue;
+                }
+                // subset --> true
+                if(m_ism.subset(curr_st, xk_set)){
+                    R_propagate(l, xk_set);
+                    return true;
+                }
+                // complement --> false
+                interval_set_ref tmp(m_ism);
+                tmp = m_ism.mk_union(curr_st, xk_set);
+                if(m_ism.is_full(tmp)){
+                    R_propagate(~l, tmp, false);
+                    continue;
+                }
+                num_undef++;
+                if(first_undef == UINT_MAX){
+                    first_undef = idx;
+                    first_undef_set = curr_st;
+                }
+            }
+            if(num_undef == 0){
+                return false;
+            }
+            SASSERT(first_undef != UINT_MAX);
+            // unit propagation
+            if(num_undef == 1){
+                assign(cls[first_undef], mk_clause_jst(&cls));
+                updt_infeasible(first_undef_set);
+            }
+            else if(satisfy_learned || !cls.is_learned() || m_lazy == 0){
+                decide(cls[first_undef]);
+                updt_infeasible(first_undef_set);
+            }
+            else {
+                TRACE("nlsat_lazy", tout << "skipping clause, satisfy_learned: " << satisfy_learned << ", cls.is_learned(): " << cls.is_learned()
+                      << ", lazy: " << m_lazy << "\n";);
+            }
+            return true;
+        }
 
         /**
            \brief main procedure
@@ -1676,16 +1651,7 @@ namespace nlsat {
             while (true) {
                 TRACE("wzh", tout << "[debug] new while true loop\n";);
                 CASSERT("nlsat", check_satisfied());
-                if (m_xk == null_var) {
-                    peek_next_bool_var();
-                    if (m_bk == null_bool_var) {
-                    // here we use dynamic ordering
-                        new_stage(); // move to arith vars
-                    }
-                }
-                else {
-                    new_stage(); // peek next arith var
-                }
+                select_next_hybrid_var();
                 TRACE("nlsat_bug", tout << "xk: x" << m_xk << " bk: b" << m_bk << "\n";);
                 if (is_satisfied()) {
                     return l_true;
@@ -1703,20 +1669,22 @@ namespace nlsat {
 
                     checkpoint();
                     clause * conflict_clause;
-                    if (m_xk == null_var)
-                        conflict_clause = process_clauses(m_bwatches[m_bk]);
-                    else {
-                        clause_vector clauses;
-                        m_dm.find_next_process_clauses(m_xk, clauses);
-                        conflict_clause = process_clauses(clauses);
-                    }
+                    // if (m_xk == null_var){
+                    //     conflict_clause = process_clauses(m_bwatches[m_bk]);
+                    //     DCTRACE(m_bwatches[m_bk].empty(), tout << "no boolean watch clauses\n";);
+                    // }
+                    // else {
+                    //     clause_vector clauses;
+                    //     m_dm.find_next_process_clauses(m_xk, clauses);
+                    //     conflict_clause = process_clauses(clauses);
+                    // }
+
+                    // exactly one is null_var
+                    SASSERT((m_xk == null_var) != (m_bk == null_var));
+                    clause_vector clauses;
+                    m_dm.find_next_process_clauses(m_xk, m_bk, clauses);
+                    conflict_clause = process_hybrid_clauses(clauses);
                     if (conflict_clause == nullptr){
-                        // reduceDB here
-                        // if(m_learned.size() - curr_lt_assign >= max_learnts){
-                        //     TRACE("wzh", tout << "[reduce] reduceDB" << std::endl;);
-                        //     reduceDB();
-                        //     TRACE("wzh", tout << "[reduce] exit reduceDB" << std::endl;);
-                        // }
                         break;
                     }
                     if (!resolve(*conflict_clause)) 
@@ -1733,6 +1701,7 @@ namespace nlsat {
                
                 if (m_xk == null_var) {
                     if (m_bvalues[m_bk] == l_undef) {
+                        DTRACE(tout << "decide in while\n";);
                         decide(literal(m_bk, true));
                         m_bk++;
                     }
@@ -1864,7 +1833,27 @@ namespace nlsat {
                 m_bvalues[i] = l_undef;
             }
             m_assignment.reset();
+            init_pure_bool();
             m_dm.init_search();
+            m_search_mode = INIT;
+        }
+
+        void init_pure_bool(){
+            m_pure_bool_vars.reset();
+            for(bool_var b = 0; b < m_atoms.size(); b++){
+                if(m_atoms[b] == nullptr){
+                    m_pure_bool_vars.push_back(b);
+                }
+            }
+            m_num_pure_bools = m_pure_bool_vars.size();
+            m_pure_bool_convert.reset();
+            if(m_num_pure_bools > 0){
+                m_pure_bool_convert.resize(m_pure_bool_vars.back() + 1, null_var);
+            }
+            for(unsigned i = 0; i < m_pure_bool_vars.size(); i++){
+                m_pure_bool_convert[m_pure_bool_vars[i]] = i;
+            }
+            m_num_hybrid_vars = m_num_pure_bools + num_vars();
         }
 
         lbool check(literal_vector& assumptions) {
@@ -2423,7 +2412,7 @@ namespace nlsat {
 
                 if (lemma_is_clause(*conflict_clause)) {
                     TRACE("nlsat", tout << "found decision literal in conflict clause\n";);
-                    VERIFY(process_clause(*conflict_clause, true));
+                    VERIFY(process_hybrid_clause(*conflict_clause, true));
                     return true;
                 }
                 new_cls = mk_clause(sz, m_lemma.data(), true, m_lemma_assumptions.get());
@@ -2441,7 +2430,7 @@ namespace nlsat {
 
             NLSAT_VERBOSE(display(verbose_stream(), *new_cls) << "\n";);
             TRACE("wzh", tout << "[debug] enter process lemma" << std::endl;);
-            if (!process_clause(*new_cls, true)) {
+            if (!process_hybrid_clause(*new_cls, true)) {
                 TRACE("nlsat", tout << "new clause triggered another conflict, restarting conflict resolution...\n";
                       display(tout, *new_cls) << "\n";
                       );
@@ -2481,19 +2470,19 @@ namespace nlsat {
         //     return true;
         // }
 
-        bool check_bwatches() const {
-            DEBUG_CODE(
-                for (bool_var b = 0; b < m_bwatches.size(); b++) {
-                    clause_vector const & cs = m_bwatches[b];
-                    unsigned sz = cs.size();
-                    for (unsigned i = 0; i < sz; i++) {
-                        clause const & c = *(cs[i]);
-                        // SASSERT(max_var(c) == null_var);
-                        SASSERT(max_bvar(c) == b);
-                    }
-                });
-            return true;
-        }
+        // bool check_bwatches() const {
+        //     DEBUG_CODE(
+        //         for (bool_var b = 0; b < m_bwatches.size(); b++) {
+        //             clause_vector const & cs = m_bwatches[b];
+        //             unsigned sz = cs.size();
+        //             for (unsigned i = 0; i < sz; i++) {
+        //                 clause const & c = *(cs[i]);
+        //                 // SASSERT(max_var(c) == null_var);
+        //                 SASSERT(max_bvar(c) == b);
+        //             }
+        //         });
+        //     return true;
+        // }
 
         bool check_invariant() const {
             // SASSERT(check_watches());
@@ -2514,16 +2503,16 @@ namespace nlsat {
         }
 
         bool check_satisfied() const {
-            TRACE("nlsat", tout << "bk: b" << m_bk << ", xk: x" << m_xk << "\n"; if (m_xk != null_var) { m_display_var(tout, m_xk); tout << "\n"; });
-            unsigned num = m_atoms.size();
-            if (m_bk != null_bool_var)
-                num = m_bk;
-            for (bool_var b = 0; b < num; b++) {
-                if (!check_satisfied(m_bwatches[b])) {
-                    UNREACHABLE();
-                    return false;
-                }
-            }
+            // TRACE("nlsat", tout << "bk: b" << m_bk << ", xk: x" << m_xk << "\n"; if (m_xk != null_var) { m_display_var(tout, m_xk); tout << "\n"; });
+            // unsigned num = m_atoms.size();
+            // if (m_bk != null_bool_var)
+            //     num = m_bk;
+            // for (bool_var b = 0; b < num; b++) {
+            //     if (!check_satisfied(m_bwatches[b])) {
+            //         UNREACHABLE();
+            //         return false;
+            //     }
+            // }
             // if (m_xk != null_var) {
             //     for (var x = 0; x < m_xk; x++) {
             //         if (!check_satisfied(m_watches[x])) {

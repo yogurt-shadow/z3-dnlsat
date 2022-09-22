@@ -10,11 +10,14 @@
  */
 
 #define DTRACE(CODE) TRACE("dnlsat", CODE)
+#define DCTRACE(COND, CODE) CTRACE("dnlsat", COND, CODE)
 
 namespace nlsat {
     using literal_index = var;
     using atom_index = var;
     using clause_index = var;
+    using hybrid_var = var;
+    using hybrid_var_vector = var_vector;
 
     // hastable for var
     struct var_hash {
@@ -30,7 +33,8 @@ namespace nlsat {
     };
 
     using var_table = hashtable<var, var_hash, var_eq>;
-    using var_pair = std::pair<var, var>;
+    using bool_var_table = var_table;
+    using hybrid_var_pair = std::pair<var, var>;
     using var_vector_vector = vector<var_vector>;
     using var_table_vector = vector<var_table>;
 
@@ -40,7 +44,8 @@ namespace nlsat {
         atom const * m_atom;
     public:
         var_table m_vars;
-        dynamic_atom(atom_index id, atom const * at, var_table const & vars): m_index(id), m_atom(at), m_vars(vars) {}
+        dynamic_atom(atom_index id, atom const * at, var_table const & vars): 
+        m_index(id), m_atom(at), m_vars(vars) {}
         ~dynamic_atom(){}
 
         unsigned get_index() const {
@@ -56,11 +61,13 @@ namespace nlsat {
     private:
         clause_index m_index;
         clause const * m_clause;
-        var_pair m_watched_var;
+        hybrid_var_pair m_watched_var;
     public:
         var_table m_vars;
-        dynamic_clause(clause_index id, clause const * cls, var_table const & vars): m_index(id), m_clause(cls), m_vars(vars) {
-            m_watched_var = var_pair(null_var, null_var);
+        bool_var_table m_bool_vars;
+        dynamic_clause(clause_index id, clause const * cls, var_table const & vars, var_table const & bool_vars): 
+        m_index(id), m_clause(cls), m_vars(vars), m_bool_vars(bool_vars) {
+            m_watched_var = hybrid_var_pair(null_var, null_var);
         }
         ~dynamic_clause(){}
 
@@ -92,7 +99,7 @@ namespace nlsat {
     private:
         imp * m_imp;
     public:
-        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, solver & s, clause_vector const & clauses, clause_vector & learned, 
+        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
         atom_vector const & atoms, unsigned & restart, unsigned & deleted);
         ~Dynamic_manager();
 
@@ -110,20 +117,20 @@ namespace nlsat {
         void inc_curr_literal_assign();
         bool check_restart_requirement();
 
+        hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const;
         unsigned assigned_size() const;
-        void push_assigned_var(var x);
-        var get_last_assigned_var() const;
+        void push_assigned_var(hybrid_var x, bool is_bool);
         var get_assigned_var(var x) const;
-        var pop_last_var();
+        void pop_last_var();
 
-        var vsids_select();
+        var vsids_select(bool & is_bool);
         void bump_conflict_vars();
         void var_decay_act();
 
-        void do_watched_clauses(var x);
-        void undo_watched_clauses(var x);
+        void do_watched_clauses(hybrid_var x, bool is_bool);
+        void undo_watched_clauses(hybrid_var x, bool is_bool);
 
-        void find_next_process_clauses(var x, clause_vector & clauses);
+        void find_next_process_clauses(var x, bool_var b, clause_vector & clauses);
 
         void del_bool(bool_var b);
         void del_clauses();
@@ -139,7 +146,7 @@ namespace nlsat {
         var find_stage(var x) const;
         var max_stage_literal(literal l) const;
         var max_stage_lts(unsigned sz, literal const * cls) const;
-        bool all_assigned_bool(bool_var b) const;
+        bool all_assigned_bool_arith(bool_var b) const;
         bool same_stage_bool(bool_var b, var x) const;
         bool same_stage_literal(literal l, var x) const;
         var max_stage_var(atom const * a) const;

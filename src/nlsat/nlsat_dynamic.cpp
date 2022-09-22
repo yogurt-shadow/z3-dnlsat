@@ -16,12 +16,16 @@ namespace nlsat {
          * Assignment
          */
         assignment & m_assignment;
-        var_vector m_assigned_vars;
+        const svector<lbool> & m_bvalues;
+
+        // bool var | arith var
+        hybrid_var_vector m_assigned_hybrid_vars;
 
         /**
          * Stage
          */
         var_vector m_find_stage;
+        unsigned m_stage;
 
         /**
          * Clauses
@@ -34,9 +38,9 @@ namespace nlsat {
         /**
          * Watch
          */
-        var_vector_vector m_var_watched_clauses;
-        var_vector_vector m_var_unit_clauses;
-        var_vector_vector m_var_assigned_clauses;
+        var_vector_vector m_hybrid_var_watched_clauses;
+        var_vector_vector m_hybrid_var_unit_clauses;
+        var_vector_vector m_hybrid_var_assigned_clauses;
 
         /**
          * Atoms
@@ -49,6 +53,13 @@ namespace nlsat {
          * var activity
          */
         unsigned m_num_vars;
+        unsigned m_num_bool;
+        unsigned m_num_hybrid;
+        // pure bool index --> atom index
+        const bool_var_vector & m_pure_bool_vars;
+        // atom index --> pure bool index
+        const bool_var_vector & m_pure_bool_convert;
+
         // bump: the quantum of increase when learning a clause
         double var_bump = 1;
         // decay_factor: activities of all variables are multiplied by a constant
@@ -56,7 +67,8 @@ namespace nlsat {
         // init var activity randomly or not
         const bool rand_init_act = false;
         var_table m_conflict_vars;
-        double_vector m_var_activity;
+        // bool var | arith var
+        double_vector m_hybrid_activity;
 
         struct var_order {
             const double_vector & m_activity;
@@ -66,7 +78,7 @@ namespace nlsat {
             }
         };
 
-        heap<var_order> m_var_heap;
+        heap<var_order> m_hybrid_heap;
 
         /**
          * learnt clause activity
@@ -105,52 +117,100 @@ namespace nlsat {
         const unsigned learntsize_adjust_start_confl = 100;
         const double learntsize_adjust_inc = 1.5;
         
-        imp(anum_manager & am, pmanager & pm, assignment & ass, solver & s, clause_vector const & clauses, clause_vector & learned, atom_vector const & atoms, 
+        imp(anum_manager & am, pmanager & pm, assignment & ass,  svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, atom_vector const & atoms, 
         unsigned & restart, unsigned & deleted)
-        : m_am(am), m_pm(pm), m_assignment(ass), m_clauses(clauses), m_learned(learned), m_atoms(atoms), m_var_heap(200, var_order(m_var_activity)),
-        m_restart(restart), m_solver(s), m_learned_deleted(deleted)
+        : m_am(am), m_pm(pm), m_assignment(ass), m_clauses(clauses), m_learned(learned), m_atoms(atoms), m_hybrid_heap(200, var_order(m_hybrid_activity)),
+        m_restart(restart), m_solver(s), m_learned_deleted(deleted), m_bvalues(bvalues), m_pure_bool_vars(pure_bool_vars), m_pure_bool_convert(pure_bool_convert)
         {}
 
         ~imp(){}
 
         void set_var_num(unsigned x){
             m_num_vars = x;
+            init_pure_bool();
             make_space();
             collect_vars();
             set_watch();
             DTRACE(tout << "end of set var num\n";);
         }
 
+        void init_pure_bool(){
+            m_num_bool = m_pure_bool_vars.size();
+            m_num_hybrid = m_num_vars + m_num_bool;
+        }
+
         void make_space(){
             m_num_atoms = m_atoms.size();
             m_num_clauses = m_clauses.size();
-            m_var_activity.resize(m_num_vars, 0.0);
-            m_var_watched_clauses.resize(m_num_vars, var_vector());
-            m_var_unit_clauses.resize(m_num_vars, var_vector());
-            m_var_assigned_clauses.resize(m_num_vars, var_vector());
-            m_var_heap.set_bounds(m_num_vars);
+            // m_var_activity.resize(m_num_vars, 0.0);
+            m_hybrid_activity.resize(m_num_hybrid);
+            m_hybrid_var_watched_clauses.resize(m_num_hybrid, var_vector());
+            m_hybrid_var_unit_clauses.resize(m_num_hybrid, var_vector());
+            m_hybrid_var_assigned_clauses.resize(m_num_hybrid, var_vector());
+            m_hybrid_heap.set_bounds(m_num_hybrid);
             m_find_stage.resize(m_num_vars, null_var);
         }
 
         void set_watch(){
             for(clause_index i = 0; i < m_num_clauses; i++){
                 dynamic_clause * cls = m_dynamic_clauses[i];
-                // no var, no watch
-                if(cls->m_vars.empty()){
+                // no bool var and no arith var
+                if(cls->m_vars.empty() && cls->m_bool_vars.empty()){
                     cls->set_watched_var(null_var, null_var);
                 }
-                // one var, unit and no watch
-                else if(cls->m_vars.size() == 1){
-                    var x = *(cls->m_vars.begin());
-                    m_var_unit_clauses[x].push_back(i);
-                    cls->set_watched_var(null_var, null_var);
+                // one hybrid var, unit and no watch
+                else if(cls->m_vars.size() + cls->m_bool_vars.size() == 1){
+                    if(cls->m_vars.empty()){
+                        SASSERT(cls->m_bool_vars.size() == 1);
+                        hybrid_var x = *(cls->m_bool_vars.begin());
+                        m_hybrid_var_unit_clauses[x].push_back(i);
+                        cls->set_watched_var(null_var, null_var);
+                    }
+                    else if(cls->m_bool_vars.empty()) {
+                        SASSERT(cls->m_vars.size() == 1);
+                        hybrid_var x = *(cls->m_vars.begin()) + m_num_bool;
+                        m_hybrid_var_unit_clauses[x].push_back(i);
+                        cls->set_watched_var(null_var, null_var);
+                    }
+                    else {
+                        UNREACHABLE();
+                    }
                 }
+                // more hybrid vars, watch
                 else {
-                    auto it = cls->m_vars.begin();
-                    var x = *it, y = *(++it);
-                    cls->set_watched_var(x, y);
-                    m_var_watched_clauses[x].push_back(i);
-                    m_var_watched_clauses[y].push_back(i);
+                    // no arith var, peek two bool vars
+                    if(cls->m_vars.empty()){
+                        SASSERT(cls->m_bool_vars.size() >= 2);
+                        // two bool vars
+                        auto it = cls->m_bool_vars.begin();
+                        hybrid_var x = *it, y = *(++it);
+                        cls->set_watched_var(x, y);
+                        m_hybrid_var_watched_clauses[x].push_back(i);
+                        m_hybrid_var_watched_clauses[y].push_back(i);
+                    }
+                    // one arith var, peek one arith var and one bool var
+                    else if(cls->m_vars.size() == 1){
+                        SASSERT(cls->m_bool_vars.size() >= 1);
+                        // bool var
+                        hybrid_var x = *(cls->m_bool_vars.begin());
+                        // arith var
+                        hybrid_var y = *(cls->m_vars.begin()) + m_num_bool;
+                        cls->set_watched_var(x, y);
+                        m_hybrid_var_watched_clauses[x].push_back(i);
+                        m_hybrid_var_watched_clauses[y].push_back(i);
+                    }
+                    // more arith vars, peek two arith vars
+                    else {
+                        SASSERT(cls->m_vars.size() >= 2);
+                        // two arith vars
+                        auto it = cls->m_vars.begin();
+                        hybrid_var x = (*it) + m_num_bool;
+                        it++;
+                        hybrid_var y = (*it) + m_num_bool;
+                        cls->set_watched_var(x, y);
+                        m_hybrid_var_watched_clauses[x].push_back(i);
+                        m_hybrid_var_watched_clauses[y].push_back(i);
+                    }
                 }
             }
         }
@@ -166,7 +226,9 @@ namespace nlsat {
             for(clause_index i = 0; i < m_clauses.size(); i++){
                 var_table vars;
                 collect_clause_vars(m_clauses[i], vars);
-                m_dynamic_clauses.push_back(new dynamic_clause(i, m_clauses[i], vars));
+                bool_var_table bool_vars;
+                collect_clause_bool_vars(m_clauses[i], bool_vars);
+                m_dynamic_clauses.push_back(new dynamic_clause(i, m_clauses[i], vars, bool_vars));
             }
         }
 
@@ -202,6 +264,16 @@ namespace nlsat {
                 vars.insert_if_not_there(v);
             }
             vars.insert_if_not_there(a->x());
+        }
+
+        // collected bool vars are converted bool index
+        void collect_clause_bool_vars(clause const * cls, bool_var_table & bool_vars){
+            bool_vars.reset();
+            for(literal l: *cls){
+                if(m_atoms[l.var()] == nullptr){
+                    bool_vars.insert_if_not_there(m_pure_bool_convert[l.var()]);
+                }
+            }
         }
 
         void collect_clause_vars(clause const * cls, var_table & vars){
@@ -336,16 +408,17 @@ namespace nlsat {
         void init_search(){
             DTRACE(tout << "dynamic init search\n";);
             m_find_stage.resize(m_num_vars, null_var);
-            m_var_heap.set_bounds(m_num_vars);
+            m_hybrid_heap.set_bounds(m_num_hybrid);
             rebuild_var_heap();
+            m_stage = 0;
         }
 
+        // rebuild hybrid var heap
+        // pure bool var and arith var
         void rebuild_var_heap(){
-             m_var_heap.clear();
-            for(var v = 0; v < m_num_vars; v++){
-                if(!m_assignment.is_assigned(v)){
-                    m_var_heap.insert(v);
-                }
+            m_hybrid_heap.clear();
+            for(hybrid_var v = 0; v < m_num_hybrid; v++){
+                m_hybrid_heap.insert(v);
             }
         }
 
@@ -368,15 +441,15 @@ namespace nlsat {
         }
 
         void var_bump_act(var v, double inc){
-            if((m_var_activity[v] += inc) > 1e100){
+            if((m_hybrid_activity[v] += inc) > 1e100){
                 // Rescale:
-                for(var i = 0; i < m_num_vars; i++){
-                    m_var_activity[i] *= 1e-100;
+                for(hybrid_var i = 0; i < m_num_vars + m_num_bool; i++){
+                    m_hybrid_activity[i] *= 1e-100;
                 }
                 var_bump *= 1e-100;
             }
-            if(m_var_heap.contains(v)){
-                m_var_heap.decreased(v);
+            if(m_hybrid_heap.contains(v)){
+                m_hybrid_heap.decreased(v);
             }
         }
 
@@ -404,80 +477,183 @@ namespace nlsat {
         }
 
         unsigned assigned_size() const {
-            return m_assigned_vars.size();
+            return m_assigned_hybrid_vars.size();
         }
 
-        var get_last_assigned_var() const {
-            return m_assigned_vars.empty() ? null_var : m_assigned_vars.back();
+        // bool_var: return pure bool index
+        hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const {
+            if(m_assigned_hybrid_vars.empty()){
+                is_bool = false;
+                return null_var;
+            }
+            hybrid_var res = m_assigned_hybrid_vars.back();
+            if(is_arith_var(res)){
+                is_bool = false;
+                return res - m_num_bool;
+            }
+            else {
+                is_bool = true;
+                return res;
+            }
         }
 
-        var get_assigned_var(var x) const {
-            SASSERT(x < m_assigned_vars.size());
-            return m_assigned_vars[x];
-        }
-
-        var pop_last_var(){
-            if(!m_assigned_vars.empty()){
-                var x = m_assigned_vars.back();
-                m_assigned_vars.pop_back();
-                if(x != null_var){
-                    m_find_stage[x] = null_var;
-                    SASSERT(!m_var_heap.contains(x));
-                    m_var_heap.insert(x);
+        var get_last_assigned_arith_var() const {
+            for(int i = m_assigned_hybrid_vars.size() - 1; i >= 0; i--){
+                if(is_arith_var(m_assigned_hybrid_vars[i])){
+                    return m_assigned_hybrid_vars[i] - m_num_bool;
                 }
-                return x;
             }
             return null_var;
         }
 
-        void push_assigned_var(var x){
-            m_assigned_vars.push_back(x);
-            if(x != null_var){
-                m_find_stage[x] = m_assigned_vars.size() - 1;
+        bool_var get_last_assigned_bool_var() const {
+            for(int i = m_assigned_hybrid_vars.size() - 1; i >= 0; i--){
+                if(is_bool_var(m_assigned_hybrid_vars[i])){
+                    return m_assigned_hybrid_vars[i];
+                }
+            }
+            return null_var;
+        }
+
+        hybrid_var get_assigned_var(var x) const {
+            SASSERT(x < m_assigned_hybrid_vars.size());
+            return m_assigned_hybrid_vars[x];
+        }
+
+        void pop_last_var(){
+            if(!m_assigned_hybrid_vars.empty()){
+                m_assigned_hybrid_vars.pop_back();
             }
         }
 
-        var vsids_select(){
-            SASSERT(!m_var_heap.empty());
-            return m_var_heap.erase_min();
+        inline bool is_arith_var(hybrid_var x) const {
+            return x >= m_num_bool;
         }
 
-        void find_next_process_clauses(var x, clause_vector & res){
+        inline bool is_bool_var(hybrid_var x) const {
+            return x < m_num_bool;
+        }
+
+        // bool var: pure bool index
+        void push_assigned_var(hybrid_var x, bool is_bool){
+            if(x == null_var){
+                m_assigned_hybrid_vars.push_back(null_var);
+                return;
+            }
+            if(is_bool){
+                m_assigned_hybrid_vars.push_back(x);
+            }
+            else {
+                m_assigned_hybrid_vars.push_back(x + m_num_bool);
+                m_find_stage[x] = m_stage;
+                m_stage++;
+            }
+        }
+
+        // bool var: atom index
+        hybrid_var vsids_select(bool & is_bool){
+            SASSERT(!m_var_heap.empty());
+            hybrid_var v = m_hybrid_heap.erase_min();
+            if(v < m_num_bool){
+                is_bool = true;
+                return m_pure_bool_vars[v];
+            }
+            else {
+                is_bool = false;
+                return v - m_num_bool;
+            }
+        }
+
+        // bool_var: atom index
+        void find_next_process_clauses(var x, bool_var b, clause_vector & res){
             res.reset();
+            // exactly one null_var
+            SASSERT((x == null_var) != (b == null_var));
+            hybrid_var v;
+            if(x == null_var){
+                v = m_pure_bool_convert[b];
+            }
+            else if(b == null_var){
+                v = x + m_num_bool;
+            }
+            else {
+                UNREACHABLE();
+            }
             // clause
-            for(auto ele: m_var_unit_clauses[x]){
+            for(auto ele: m_hybrid_var_unit_clauses[v]){
                 res.push_back(m_clauses[ele]);
             }
             // learned
             for(unsigned i = 0; i < m_learned.size(); i++){
                 clause * cls = m_learned[i];
-                if(only_left_clause(*cls, x)){
+                if(only_left_clause(*cls, v)){
                     res.push_back(cls);
                 }
             }
         }
 
-        bool only_left_clause(clause const & cls, var x) const {
+        // only left this hybrid var unassigned
+        bool only_left_clause(clause const & cls, hybrid_var x) const {
+            return x < m_num_bool ? only_left_clause_bool(cls, x) : only_left_clause_arith(cls, x - m_num_bool);
+        }
+
+        // only left this bool var unassigned
+        bool only_left_clause_bool(clause const & cls, bool_var b) const {
             bool have_only = false;
-            for(unsigned i = 0; i < cls.size(); i++){
-                literal l = cls[i];
-                if(all_assigned_literal(l)){
-                    continue;
+            for(literal l: cls){
+                // bool literal
+                if(m_atoms[l.var()] == nullptr){
+                    if(l.var() == b){
+                        have_only = true;
+                    }
+                    else {
+                        // unassigned other bool_var
+                        if(!m_assigned_hybrid_vars.contains(l.var())){
+                            return false;
+                        }
+                    }
                 }
-                if(only_left_literal(l, x)){
-                    have_only = true;
-                    continue;;
+                // arith literal
+                else {
+                    if(!all_assigned_bool_arith(l.var())){
+                        return false;
+                    }
                 }
-                return false;
             }
             return have_only;
         }
 
-        bool all_assigned_literal(literal l) const {
-            return all_assigned_bool(l.var());
+        // only left this arith var unassigned
+        bool only_left_clause_arith(clause const & cls, var x) const {
+            bool have_only = false;
+            for(literal l: cls){
+                // bool literal
+                if(m_atoms[l.var()] == nullptr){
+                    // unassigned bool literal
+                    if(!m_assigned_hybrid_vars.contains(l.var())){
+                        return false;
+                    }
+                }
+                // arith literal
+                else {
+                    // all assigned
+                    if(all_assigned_bool_arith(l.var())){
+                        continue;
+                    }
+                    // only this var unassigned
+                    if(only_left_literal_arith(l, x)){
+                        have_only = true;
+                        continue;
+                    }
+                    // otherwise
+                    return false;
+                }
+            }
+            return have_only;
         }
 
-        bool all_assigned_bool(bool_var b) const {
+        // check whether the arith literal is all assigned
+        bool all_assigned_bool_arith(bool_var b) const {
             dynamic_atom const * a = m_dynamic_atoms[b];
             for(var v: a->m_vars){
                 if(!m_assignment.is_assigned(v)){
@@ -487,18 +663,18 @@ namespace nlsat {
             return true;
         }
 
-        bool only_left_literal(literal l, var x) const {
-            return only_left_atom(m_atoms[l.var()], x);
+        bool only_left_literal_arith(literal l, var x) const {
+            return only_left_atom_arith(m_atoms[l.var()], x);
         }
 
-        bool only_left_atom(atom const * a, var x) const {
+        bool only_left_atom_arith(atom const * a, var x) const {
             if(a == nullptr){
                 return false;
             }
-            return a->is_ineq_atom() ? only_left_ineq(to_ineq_atom(a), x) : only_left_and_ordered_root(to_root_atom(a), x);
+            return a->is_ineq_atom() ? only_left_ineq_arith(to_ineq_atom(a), x) : only_left_and_ordered_root_arith(to_root_atom(a), x);
         }
 
-        bool only_left_ineq(ineq_atom const * a, var x) const {
+        bool only_left_ineq_arith(ineq_atom const * a, var x) const {
             SASSERT(a != nullptr);
             bool contains = false;
             dynamic_atom const * curr = m_dynamic_atoms[a->bvar()];
@@ -514,7 +690,7 @@ namespace nlsat {
             return contains;
         }
 
-        bool only_left_and_ordered_root(root_atom const * a, var x) const {
+        bool only_left_and_ordered_root_arith(root_atom const * a, var x) const {
             SASSERT(!m_assignment.is_assigned(x));
             SASSERT(a != nullptr);
             // if we do not leave only x(), disable this atom
@@ -552,44 +728,51 @@ namespace nlsat {
             m_dynamic_atoms[a->bvar()] = new dynamic_atom(a->bvar(), a, vars);
         }
 
-        void do_watched_clauses(var x){
-            SASSERT(m_assignment.is_assigned(x));
+        // is_bool: bool var or not
+        // for bool var: x is index of m_atoms
+        void do_watched_clauses(hybrid_var x, bool is_bool){
             unsigned j = 0;
+            // bool var
+            if(is_bool){
+                x = m_pure_bool_convert[x];
+            }
+            // arith var
+            else {
+                x = x + m_num_bool;
+            }
             // watched clauses ==> unit clauses
-            for(clause_index idx: m_var_watched_clauses[x]){
+            for(clause_index idx: m_hybrid_var_watched_clauses[x]){
                 // ignore unit var clauses
                 if(unit_clause_contains(idx)){
-                    m_var_watched_clauses[x][j++] = idx;
+                    m_hybrid_var_watched_clauses[x][j++] = idx;
                     continue;
                 }
                 dynamic_clause * cls = m_dynamic_clauses[idx];
-                var other = cls->get_another_watched_var(x);
-                var next = select_watched_var(cls->m_vars, other);
+                hybrid_var other = cls->get_another_watched_var(x);
+                hybrid_var next = select_watched_var_except(cls, other);
                 if(next == null_var){
                     // unit clause to other
-                    // clause_var curr = {idx, other};
-                    // m_unit_var_clauses.push_back(curr);
-                    m_var_unit_clauses[other].push_back(idx);
+                    m_hybrid_var_unit_clauses[other].push_back(idx);
                     // still watch
-                    m_var_watched_clauses[x][j++] = idx;
+                    m_hybrid_var_watched_clauses[x][j++] = idx;
                 }
                 else{
                     // change watch
-                    m_var_watched_clauses[next].push_back(idx);
+                    m_hybrid_var_watched_clauses[next].push_back(idx);
                     cls->set_watched_var(next, other);
                 }
             }
-            m_var_watched_clauses[x].shrink(j);
+            m_hybrid_var_watched_clauses[x].shrink(j);
             j = 0;
             // unit clauses ==> assigned clauses
-            for(auto ele: m_var_unit_clauses[x]){
-                m_var_assigned_clauses[x].push_back(ele);
+            for(auto ele: m_hybrid_var_unit_clauses[x]){
+                m_hybrid_var_assigned_clauses[x].push_back(ele);
             }
-            m_var_unit_clauses[x].reset();
+            m_hybrid_var_unit_clauses[x].reset();
         }
 
         bool unit_clause_contains(clause_index idx) const {
-            for(auto ele: m_var_unit_clauses){
+            for(auto ele: m_hybrid_var_unit_clauses){
                 if(ele.contains(idx)){
                     return true;
                 }
@@ -597,38 +780,66 @@ namespace nlsat {
             return false;
         }
 
-        var select_watched_var(var_table const & vars, var x){
-            for(var v: vars){
-                if(v != x && !m_assignment.is_assigned(v)){
+        hybrid_var select_watched_var_except(dynamic_clause const * cls, hybrid_var x){
+            bool is_arith;
+            if(is_arith_var(x)){
+                is_arith = true;
+                x = x - m_num_bool;
+            }
+            else {
+                is_arith = false;
+            }
+            for(bool_var b: cls->m_bool_vars){
+                if(!is_arith && b == x){
+                    continue;
+                }
+                // not assigned yet
+                if(m_bvalues[m_pure_bool_vars[b]] == l_undef){
+                    return b;
+                }
+            }
+            for(var v: cls->m_vars){
+                if(is_arith && v == x){
+                    continue;
+                }
+                // not assigned yet
+                if(!m_assignment.is_assigned(v)){
                     return v;
                 }
             }
             return null_var;
         }
 
-        void undo_watched_clauses(var x){
-            SASSERT(!m_assignment.is_assigned(x));
+        // is_bool: bool var or not
+        // for bool var: x is index of m_atoms
+        void undo_watched_clauses(hybrid_var x, bool is_bool){
+            if(is_bool){
+                x = m_pure_bool_convert[x];
+            }
+            else {
+                x = x + m_num_bool;
+            }
 
             // delete unit clauses
             unsigned j = 0;
-            for(var v = 0; v < m_var_unit_clauses.size(); v++){
+            for(var v = 0; v < m_hybrid_var_unit_clauses.size(); v++){
                 j = 0;
-                for(unsigned i = 0; i < m_var_unit_clauses[v].size(); i++){
-                    dynamic_clause * cls = m_dynamic_clauses[m_var_unit_clauses[v][i]];
+                for(unsigned i = 0; i < m_hybrid_var_unit_clauses[v].size(); i++){
+                    dynamic_clause * cls = m_dynamic_clauses[m_hybrid_var_unit_clauses[v][i]];
                     if(!cls->m_vars.contains(x)){
-                        m_var_unit_clauses[v][j++] = m_var_unit_clauses[v][i];
+                        m_hybrid_var_unit_clauses[v][j++] = m_hybrid_var_unit_clauses[v][i];
                     }
                 }
-                m_var_unit_clauses[v].shrink(j);
+                m_hybrid_var_unit_clauses[v].shrink(j);
             }
             // m_unit_var_clauses.shrink(j);
 
             // assigned clauses ==> unit clauses
             j = 0;
-            for(auto ele: m_var_assigned_clauses[x]){
-                m_var_unit_clauses[x].push_back(ele);
+            for(auto ele: m_hybrid_var_assigned_clauses[x]){
+                m_hybrid_var_unit_clauses[x].push_back(ele);
             }
-            m_var_assigned_clauses[x].reset();
+            m_hybrid_var_assigned_clauses[x].reset();
         }
 
         void reset_conflict_vars(){
@@ -827,9 +1038,9 @@ namespace nlsat {
         }
     };
 
-    Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, solver & s, clause_vector const & clauses, clause_vector & learned, 
+    Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
     atom_vector const & atoms, unsigned & restart, unsigned & deleted){
-        m_imp = alloc(imp, am, pm, ass, s, clauses, learned, atoms, restart, deleted);
+        m_imp = alloc(imp, am, pm, ass, bvalues, pure_bool_vars, pure_bool_convert, s, clauses, learned, atoms, restart, deleted);
     }
 
     Dynamic_manager::~Dynamic_manager(){
@@ -880,28 +1091,24 @@ namespace nlsat {
         return m_imp->assigned_size();
     }
 
-    var Dynamic_manager::get_last_assigned_var() const {
-        return m_imp->get_last_assigned_var();
-    }
-
     var Dynamic_manager::get_assigned_var(var x) const {
         return m_imp->get_assigned_var(x);
     }
 
-    var Dynamic_manager::pop_last_var(){
-        return m_imp->pop_last_var();
+    void Dynamic_manager::pop_last_var(){
+        m_imp->pop_last_var();
     }
 
-    void Dynamic_manager::push_assigned_var(var x){
-        m_imp->push_assigned_var(x);
+    void Dynamic_manager::push_assigned_var(hybrid_var x, bool is_bool){
+        m_imp->push_assigned_var(x, is_bool);
     }
 
-    var Dynamic_manager::vsids_select(){
-        return m_imp->vsids_select();
+    var Dynamic_manager::vsids_select(bool & is_bool){
+        return m_imp->vsids_select(is_bool);
     }
 
-    void Dynamic_manager::find_next_process_clauses(var x, clause_vector & clauses){
-        m_imp->find_next_process_clauses(x, clauses);
+    void Dynamic_manager::find_next_process_clauses(var x, bool_var b, clause_vector & clauses){
+        m_imp->find_next_process_clauses(x, b, clauses);
     }
 
     void Dynamic_manager::del_bool(bool_var b){
@@ -916,12 +1123,12 @@ namespace nlsat {
         m_imp->register_atom(a);
     }
 
-    void Dynamic_manager::do_watched_clauses(var x){
-        m_imp->do_watched_clauses(x);
+    void Dynamic_manager::do_watched_clauses(var x, bool is_bool){
+        m_imp->do_watched_clauses(x, is_bool);
     }
 
-    void Dynamic_manager::undo_watched_clauses(var x){
-        m_imp->undo_watched_clauses(x);
+    void Dynamic_manager::undo_watched_clauses(var x, bool is_bool){
+        m_imp->undo_watched_clauses(x, is_bool);
     }
 
     void Dynamic_manager::clause_bump_act(clause & cls){
@@ -968,8 +1175,8 @@ namespace nlsat {
         return m_imp->max_stage_lts(sz, ls);
     }
 
-    bool Dynamic_manager::all_assigned_bool(bool_var b) const {
-        return m_imp->all_assigned_bool(b);
+    bool Dynamic_manager::all_assigned_bool_arith(bool_var b) const {
+        return m_imp->all_assigned_bool_arith(b);
     }
 
     bool Dynamic_manager::same_stage_bool(bool_var b, var x) const {
