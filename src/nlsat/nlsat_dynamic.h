@@ -34,6 +34,7 @@ namespace nlsat {
 
     using var_table = hashtable<var, var_hash, var_eq>;
     using bool_var_table = var_table;
+    using hybrid_var_table = var_table;
     using hybrid_var_pair = std::pair<var, var>;
     using var_vector_vector = vector<var_vector>;
     using var_table_vector = vector<var_table>;
@@ -61,8 +62,8 @@ namespace nlsat {
     private:
         clause_index m_index;
         clause const * m_clause;
-        hybrid_var_pair m_watched_var;
     public:
+        hybrid_var_pair m_watched_var;
         var_table m_vars;
         bool_var_table m_bool_vars;
         dynamic_clause(clause_index id, clause const * cls, var_table const & vars, var_table const & bool_vars): 
@@ -79,12 +80,12 @@ namespace nlsat {
             return m_clause;
         }
 
-        void set_watched_var(var x, var y) {
+        void set_watched_var(hybrid_var x, hybrid_var y) {
             m_watched_var.first = x;
             m_watched_var.second = y;
         }
 
-        var get_another_watched_var(var x) const {
+        var get_another_watched_var(hybrid_var x) const {
             SASSERT(m_watched_var.first == x || m_watched_var.second == x);
             return m_watched_var.first - x + m_watched_var.second;
         }
@@ -103,7 +104,9 @@ namespace nlsat {
         atom_vector const & atoms, unsigned & restart, unsigned & deleted);
         ~Dynamic_manager();
 
+        // set num of arit vars
         void set_var_num(unsigned x);
+        // initialize
         void init_search();
 
         void init_learnt_management();
@@ -119,15 +122,23 @@ namespace nlsat {
 
         hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const;
         unsigned assigned_size() const;
+
+        // is_bool: push bool var or arith var
+        // for bool var: push pure bool index
+        // for airth var: push arith index
         void push_assigned_var(hybrid_var x, bool is_bool);
-        var get_assigned_var(var x) const;
+        
+
+        hybrid_var get_assigned_var(var x) const;
         void pop_last_var();
 
         var vsids_select(bool & is_bool);
-        void bump_conflict_vars();
-        void var_decay_act();
+        void bump_conflict_hybrid_vars();
+        void hybrid_decay_act();
 
+        // for bool var: atom index
         void do_watched_clauses(hybrid_var x, bool is_bool);
+        // for bool var: atom index
         void undo_watched_clauses(hybrid_var x, bool is_bool);
 
         void find_next_process_clauses(var x, bool_var b, clause_vector & clauses);

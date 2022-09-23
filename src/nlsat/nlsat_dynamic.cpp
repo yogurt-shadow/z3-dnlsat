@@ -62,11 +62,14 @@ namespace nlsat {
 
         // bump: the quantum of increase when learning a clause
         double var_bump = 1;
+        double bool_var_bump = 1; 
         // decay_factor: activities of all variables are multiplied by a constant
         const double var_decay = 0.95;
+        const double bool_var_decay = 0.95;
         // init var activity randomly or not
         const bool rand_init_act = false;
-        var_table m_conflict_vars;
+        var_table m_conflict_arith;
+        var_table m_conflict_bool;
         // bool var | arith var
         double_vector m_hybrid_activity;
 
@@ -123,9 +126,12 @@ namespace nlsat {
         m_restart(restart), m_solver(s), m_learned_deleted(deleted), m_bvalues(bvalues), m_pure_bool_vars(pure_bool_vars), m_pure_bool_convert(pure_bool_convert)
         {}
 
-        ~imp(){}
+        ~imp(){
+
+        }
 
         void set_var_num(unsigned x){
+            DTRACE(tout << "start of set var num\n";);
             m_num_vars = x;
             init_pure_bool();
             make_space();
@@ -151,7 +157,9 @@ namespace nlsat {
             m_find_stage.resize(m_num_vars, null_var);
         }
 
+        // set hybrid var watch for each clause
         void set_watch(){
+            DTRACE(tout << "start of set watch\n";);
             for(clause_index i = 0; i < m_num_clauses; i++){
                 dynamic_clause * cls = m_dynamic_clauses[i];
                 // no bool var and no arith var
@@ -213,8 +221,16 @@ namespace nlsat {
                     }
                 }
             }
+            DTRACE(tout << "after set watch, display watch clauses\n";
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
+            DTRACE(tout << "end of set watch\n";);
         }
 
+        // collect arith var and bool var for each clause
+        // bool var: pure bool index
         void collect_vars(){
             m_dynamic_atoms.reset();
             m_dynamic_clauses.reset();
@@ -382,7 +398,10 @@ namespace nlsat {
 
         void insert_conflict_from_bool(bool_var b){
             for(var v: m_dynamic_atoms[b]->m_vars){
-                m_conflict_vars.insert_if_not_there(v);
+                m_conflict_arith.insert_if_not_there(v);
+            }
+            if(m_atoms[b] == nullptr){
+                m_conflict_bool.insert_if_not_there(m_pure_bool_convert[b]);
             }
         }
 
@@ -405,6 +424,7 @@ namespace nlsat {
             return nof_conflicts >= 0 && curr_conflicts >= nof_conflicts;
         }
 
+        // Initialize
         void init_search(){
             DTRACE(tout << "dynamic init search\n";);
             m_find_stage.resize(m_num_vars, null_var);
@@ -415,11 +435,17 @@ namespace nlsat {
 
         // rebuild hybrid var heap
         // pure bool var and arith var
+        // pure bool var | arith var + m_num_bool
         void rebuild_var_heap(){
             m_hybrid_heap.clear();
             for(hybrid_var v = 0; v < m_num_hybrid; v++){
                 m_hybrid_heap.insert(v);
             }
+        }
+
+        void hybrid_decay_act(){
+            var_decay_act();
+            bool_var_decay_act();
         }
 
         void var_decay_act(){
@@ -429,9 +455,19 @@ namespace nlsat {
             var_bump *= (1 / var_decay);
         }
 
-        void bump_conflict_vars(){
-            for(var v: m_conflict_vars){
+        void bool_var_decay_act(){
+            TRACE("wzh", tout << "[mvsids] decay inc for bool_var vsids: \n";
+                 tout << bool_var_bump << " -> " << bool_var_bump * (1 / bool_var_decay) << std::endl;           
+            );
+            bool_var_bump *= (1 / bool_var_decay);
+        }
+
+        void bump_conflict_hybrid_vars(){
+            for(var v: m_conflict_arith){
                 var_bump_act(v);
+            }
+            for(bool_var b: m_conflict_bool){
+                bool_var_bump_act(b);
             }
         }
 
@@ -440,10 +476,15 @@ namespace nlsat {
             var_bump_act(v, var_bump);
         }
 
+        void bool_var_bump_act(bool_var b){
+            bool_var_bump_act(b, bool_var_bump);
+        }
+
         void var_bump_act(var v, double inc){
+            v = v + m_num_bool;
             if((m_hybrid_activity[v] += inc) > 1e100){
                 // Rescale:
-                for(hybrid_var i = 0; i < m_num_vars + m_num_bool; i++){
+                for(hybrid_var i = m_num_bool; i < m_num_hybrid; i++){
                     m_hybrid_activity[i] *= 1e-100;
                 }
                 var_bump *= 1e-100;
@@ -453,6 +494,19 @@ namespace nlsat {
             }
         }
 
+        // pure bool index
+        void bool_var_bump_act(bool_var b, double inc){
+            if((m_hybrid_activity[b] += inc) > 1e100){
+                // Rescale:
+                for(hybrid_var i = 0; i < m_num_bool; i++){
+                    m_hybrid_activity[i] *= 1e-100;
+                }
+                bool_var_bump *= 1e-100;
+            }
+            if(m_hybrid_heap.contains(b)){
+                m_hybrid_heap.decreased(b);
+            }
+        }
 
         void clause_decay_act(){
             TRACE("wzh", tout << "[mvsids] decay inc for clause vsids: \n";
@@ -522,7 +576,12 @@ namespace nlsat {
 
         void pop_last_var(){
             if(!m_assigned_hybrid_vars.empty()){
+                hybrid_var v = m_assigned_hybrid_vars.back();
                 m_assigned_hybrid_vars.pop_back();
+                if(v != null_var){
+                    SASSERT(!m_hybrid_heap.contains(v));
+                    m_hybrid_heap.insert(v);
+                }
             }
         }
 
@@ -535,6 +594,7 @@ namespace nlsat {
         }
 
         // bool var: pure bool index
+        // arith var: arith index
         void push_assigned_var(hybrid_var x, bool is_bool){
             if(x == null_var){
                 m_assigned_hybrid_vars.push_back(null_var);
@@ -550,9 +610,12 @@ namespace nlsat {
             }
         }
 
-        // bool var: atom index
+        // is_bool: returned var is bool var or not
+        // for bool var: return atom index
+        // for arith var: return arith index
         hybrid_var vsids_select(bool & is_bool){
-            SASSERT(!m_var_heap.empty());
+            DTRACE(m_hybrid_heap.display(tout););
+            SASSERT(!m_hybrid_heap.empty());
             hybrid_var v = m_hybrid_heap.erase_min();
             if(v < m_num_bool){
                 is_bool = true;
@@ -749,7 +812,9 @@ namespace nlsat {
                 }
                 dynamic_clause * cls = m_dynamic_clauses[idx];
                 hybrid_var other = cls->get_another_watched_var(x);
+                DTRACE(tout << "other watched var: " << other << std::endl;);
                 hybrid_var next = select_watched_var_except(cls, other);
+                DTRACE(tout << "next watched var: " << next << std::endl;);
                 if(next == null_var){
                     // unit clause to other
                     m_hybrid_var_unit_clauses[other].push_back(idx);
@@ -759,7 +824,7 @@ namespace nlsat {
                 else{
                     // change watch
                     m_hybrid_var_watched_clauses[next].push_back(idx);
-                    cls->set_watched_var(next, other);
+                    cls->set_watched_var(other, next);
                 }
             }
             m_hybrid_var_watched_clauses[x].shrink(j);
@@ -769,6 +834,11 @@ namespace nlsat {
                 m_hybrid_var_assigned_clauses[x].push_back(ele);
             }
             m_hybrid_var_unit_clauses[x].reset();
+            DTRACE(tout << "after do watch clauses, display watch clauses\n";
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
         }
 
         bool unit_clause_contains(clause_index idx) const {
@@ -778,6 +848,10 @@ namespace nlsat {
                 }
             }
             return false;
+        }
+
+        inline std::string bool2str(bool b) const {
+            return b ? "true" : "false";
         }
 
         hybrid_var select_watched_var_except(dynamic_clause const * cls, hybrid_var x){
@@ -804,7 +878,8 @@ namespace nlsat {
                 }
                 // not assigned yet
                 if(!m_assignment.is_assigned(v)){
-                    return v;
+                    // return hybrid var
+                    return v + m_num_bool;
                 }
             }
             return null_var;
@@ -840,10 +915,16 @@ namespace nlsat {
                 m_hybrid_var_unit_clauses[x].push_back(ele);
             }
             m_hybrid_var_assigned_clauses[x].reset();
+            DTRACE(tout << "after undo watch clauses, display watch clauses\n";
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
         }
 
         void reset_conflict_vars(){
-            m_conflict_vars.reset();
+            m_conflict_arith.reset();
+            m_conflict_bool.reset();
         }
 
         var find_stage(var x) const {
@@ -1036,6 +1117,40 @@ namespace nlsat {
             }
             return res_x;
         }
+
+        std::ostream & display_clauses_watch(std::ostream & out) const {
+            out << "display clauses watch\n";
+            for(clause_index i = 0; i < m_dynamic_clauses.size(); i++){
+                m_solver.display(out, *m_dynamic_clauses[i]->get_clause()) << std::endl;
+                out << "(" << m_dynamic_clauses[i]->m_watched_var.first << ", " << m_dynamic_clauses[i]->m_watched_var.second << ")" << std::endl;
+            }
+            return out;
+        }
+
+        std::ostream & display_clause_vector(std::ostream & out, var_vector const & vec) const {
+            for(auto ele: vec){
+                m_solver.display(out, *m_clauses[ele]) << std::endl;
+            }
+            return out;
+        }
+        
+        std::ostream & display_unit_clauses(std::ostream & out) const {
+            out << "display unit clauses\n";
+            for(hybrid_var v = 0; v < m_hybrid_var_unit_clauses.size(); v++){
+                out << "unit to hybrid var " << v << std::endl;
+                display_clause_vector(out, m_hybrid_var_unit_clauses[v]);
+            }
+            return out;
+        }
+
+        std::ostream & display_assigned_clauses(std::ostream & out) const {
+            out << "display assigned clauses\n";
+            for(hybrid_var v = 0; v < m_hybrid_var_assigned_clauses.size(); v++){
+                out << "assigned to hybrid var " << v << std::endl;
+                display_clause_vector(out, m_hybrid_var_assigned_clauses[v]);
+            }
+            return out;
+        }
     };
 
     Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
@@ -1044,6 +1159,7 @@ namespace nlsat {
     }
 
     Dynamic_manager::~Dynamic_manager(){
+        DTRACE(tout << "dealloc dynamic manager\n";);
         dealloc(m_imp);
     }
 
@@ -1151,12 +1267,12 @@ namespace nlsat {
         m_imp->insert_conflict_from_literals(sz, ls);
     }
 
-    void Dynamic_manager::bump_conflict_vars(){
-        m_imp->bump_conflict_vars();
+    void Dynamic_manager::bump_conflict_hybrid_vars(){
+        m_imp->bump_conflict_hybrid_vars();
     }
 
-    void Dynamic_manager::var_decay_act(){
-        m_imp->var_decay_act();
+    void Dynamic_manager::hybrid_decay_act(){
+        m_imp->hybrid_decay_act();
     }
 
     void Dynamic_manager::clause_decay_act(){
@@ -1209,5 +1325,9 @@ namespace nlsat {
 
     var Dynamic_manager::max_stage_or_unassigned_atom(atom const * a) const {
         return m_imp->max_stage_or_unassigned_atom(a);
+    }
+
+    hybrid_var Dynamic_manager::get_last_assigned_hybrid_var(bool & is_bool) const {
+        return m_imp->get_last_assigned_hybrid_var(is_bool);
     }
 };

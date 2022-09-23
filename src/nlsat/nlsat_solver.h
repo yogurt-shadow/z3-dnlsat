@@ -264,6 +264,8 @@ namespace nlsat {
 
         // dnlsat
          void del_clause(clause *);
+
+         std::ostream & display(std::ostream & out, clause const & cls) const;
         // dnlsat
     };
 

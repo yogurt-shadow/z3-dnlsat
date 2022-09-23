@@ -1814,7 +1814,6 @@ namespace nlsat {
 
 
         void signed_project(polynomial_ref_vector& ps, var x) {
-            
             TRACE("nlsat_explain", tout << "Signed projection\n";);
             polynomial_ref p(m_pm);
             unsigned eq_index = 0;
