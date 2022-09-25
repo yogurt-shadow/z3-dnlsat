@@ -143,6 +143,10 @@ namespace nlsat {
         void init_pure_bool(){
             m_num_bool = m_pure_bool_vars.size();
             m_num_hybrid = m_num_vars + m_num_bool;
+            DTRACE(tout << "num of bool: " << m_num_bool << std::endl;
+                tout << "num of arith: " << m_num_vars << std::endl;
+                tout << "num of hybrid: " << m_num_hybrid << std::endl;
+            );
         }
 
         void make_space(){
@@ -569,9 +573,18 @@ namespace nlsat {
             return null_var;
         }
 
-        hybrid_var get_assigned_var(var x) const {
-            SASSERT(x < m_assigned_hybrid_vars.size());
-            return m_assigned_hybrid_vars[x];
+        hybrid_var get_stage_var(var x) const {
+            unsigned curr_stage = 0;
+            for(unsigned i = 0; i < m_assigned_hybrid_vars.size(); i++){
+                hybrid_var v = m_assigned_hybrid_vars[i];
+                if(is_arith_var(v)){
+                    if(curr_stage == x){
+                        return v - m_num_bool;
+                    }
+                    curr_stage++;
+                }
+            }
+            return null_var;
         }
 
         void pop_last_var(){
@@ -581,8 +594,14 @@ namespace nlsat {
                 if(v != null_var){
                     SASSERT(!m_hybrid_heap.contains(v));
                     m_hybrid_heap.insert(v);
+                    if(is_arith_var(v)){
+                        m_find_stage[v - m_num_bool] = null_var;
+                        SASSERT(m_stage >= 1);
+                        m_stage--;
+                    }
                 }
             }
+            DTRACE(display_arith_stage(tout););
         }
 
         inline bool is_arith_var(hybrid_var x) const {
@@ -608,6 +627,7 @@ namespace nlsat {
                 m_find_stage[x] = m_stage;
                 m_stage++;
             }
+            DTRACE(display_arith_stage(tout););
         }
 
         // is_bool: returned var is bool var or not
@@ -628,15 +648,14 @@ namespace nlsat {
         }
 
         // bool_var: atom index
-        void find_next_process_clauses(var x, bool_var b, clause_vector & res){
+        void find_next_process_clauses(var x, bool_var b, clause_vector & res, search_mode m_mode){
             res.reset();
             // exactly one null_var
-            SASSERT((x == null_var) != (b == null_var));
             hybrid_var v;
-            if(x == null_var){
+            if(m_mode == BOOL){
                 v = m_pure_bool_convert[b];
             }
-            else if(b == null_var){
+            else if(m_mode == ARITH){
                 v = x + m_num_bool;
             }
             else {
@@ -794,6 +813,7 @@ namespace nlsat {
         // is_bool: bool var or not
         // for bool var: x is index of m_atoms
         void do_watched_clauses(hybrid_var x, bool is_bool){
+            DTRACE(tout << "do watched clauses for hybrid var " << x << std::endl;);
             unsigned j = 0;
             // bool var
             if(is_bool){
@@ -812,9 +832,7 @@ namespace nlsat {
                 }
                 dynamic_clause * cls = m_dynamic_clauses[idx];
                 hybrid_var other = cls->get_another_watched_var(x);
-                DTRACE(tout << "other watched var: " << other << std::endl;);
                 hybrid_var next = select_watched_var_except(cls, other);
-                DTRACE(tout << "next watched var: " << next << std::endl;);
                 if(next == null_var){
                     // unit clause to other
                     m_hybrid_var_unit_clauses[other].push_back(idx);
@@ -885,30 +903,60 @@ namespace nlsat {
             return null_var;
         }
 
+        // x is hybrid var
+        bool clause_contains_hybrid_var(dynamic_clause const * cls, hybrid_var x, bool is_bool) const {
+            DTRACE(tout << "here1\n";);
+            if(!is_bool){
+                x = x - m_num_bool;
+                for(var v: cls->m_vars){
+                    if(v == x){
+                        DTRACE(tout << "here2\n";);
+                        return true;
+                    }
+                }
+            }
+            else {
+                for(bool_var b: cls->m_bool_vars){
+                    if(b == x){
+                        DTRACE(tout << "here3\n";);
+                        return true;
+                    }
+                }
+            }
+            DTRACE(tout << "here4\n";);
+            return false;
+        }
+
         // is_bool: bool var or not
         // for bool var: x is index of m_atoms
         void undo_watched_clauses(hybrid_var x, bool is_bool){
+            DTRACE(tout << "undo watched clauses for hybrid var " << x << std::endl;
+                tout << "is bool: " << bool2str(is_bool) << std::endl;
+            );
             if(is_bool){
                 x = m_pure_bool_convert[x];
             }
             else {
                 x = x + m_num_bool;
             }
-
+            DTRACE(tout << "debug1\n";);
             // delete unit clauses
             unsigned j = 0;
-            for(var v = 0; v < m_hybrid_var_unit_clauses.size(); v++){
+            for(hybrid_var v = 0; v < m_hybrid_var_unit_clauses.size(); v++){
                 j = 0;
                 for(unsigned i = 0; i < m_hybrid_var_unit_clauses[v].size(); i++){
                     dynamic_clause * cls = m_dynamic_clauses[m_hybrid_var_unit_clauses[v][i]];
-                    if(!cls->m_vars.contains(x)){
+                    if(!clause_contains_hybrid_var(cls, x, is_bool)){
                         m_hybrid_var_unit_clauses[v][j++] = m_hybrid_var_unit_clauses[v][i];
                     }
                 }
                 m_hybrid_var_unit_clauses[v].shrink(j);
             }
             // m_unit_var_clauses.shrink(j);
-
+            DTRACE(tout << "debug2\n";
+                tout << m_num_hybrid << std::endl;
+                tout << x << std::endl;
+            );
             // assigned clauses ==> unit clauses
             j = 0;
             for(auto ele: m_hybrid_var_assigned_clauses[x]){
@@ -938,8 +986,10 @@ namespace nlsat {
         }
 
         bool same_stage_bool(bool_var b, var x) const {
+            // for all bool literal, we return true
             if(m_atoms[b] == nullptr){
-                return x == null_var;
+                // return x == null_var;
+                return true;
             }
             dynamic_atom const * curr = m_dynamic_atoms[b];
             var stage = find_stage(x);
@@ -1117,7 +1167,10 @@ namespace nlsat {
             }
             return res_x;
         }
-
+        
+        /**
+         * Display
+         */
         std::ostream & display_clauses_watch(std::ostream & out) const {
             out << "display clauses watch\n";
             for(clause_index i = 0; i < m_dynamic_clauses.size(); i++){
@@ -1148,6 +1201,28 @@ namespace nlsat {
             for(hybrid_var v = 0; v < m_hybrid_var_assigned_clauses.size(); v++){
                 out << "assigned to hybrid var " << v << std::endl;
                 display_clause_vector(out, m_hybrid_var_assigned_clauses[v]);
+            }
+            return out;
+        }
+
+        std::ostream & display_arith_stage(std::ostream & out) const {
+            out << "display arith stage\n";
+            for(var v = 0; v < m_find_stage.size(); v++){
+                out << "arith var " << v << ", stage: " << m_find_stage[v] << std::endl;
+            }
+            return out;
+        }
+
+        std::ostream & display_assigned_vars(std::ostream & out) const {
+            out << "display assigned vars\n";
+            if(m_assigned_hybrid_vars.empty()){
+                out << "[EMPTY]\n";
+            }
+            else {
+                for(auto ele: m_assigned_hybrid_vars) {
+                    out << ele << " ";
+                }
+                out << std::endl;
             }
             return out;
         }
@@ -1207,8 +1282,8 @@ namespace nlsat {
         return m_imp->assigned_size();
     }
 
-    var Dynamic_manager::get_assigned_var(var x) const {
-        return m_imp->get_assigned_var(x);
+    var Dynamic_manager::get_stage_var(var x) const {
+        return m_imp->get_stage_var(x);
     }
 
     void Dynamic_manager::pop_last_var(){
@@ -1223,8 +1298,8 @@ namespace nlsat {
         return m_imp->vsids_select(is_bool);
     }
 
-    void Dynamic_manager::find_next_process_clauses(var x, bool_var b, clause_vector & clauses){
-        m_imp->find_next_process_clauses(x, b, clauses);
+    void Dynamic_manager::find_next_process_clauses(var x, bool_var b, clause_vector & clauses, search_mode mode){
+        m_imp->find_next_process_clauses(x, b, clauses, mode);
     }
 
     void Dynamic_manager::del_bool(bool_var b){
@@ -1329,5 +1404,9 @@ namespace nlsat {
 
     hybrid_var Dynamic_manager::get_last_assigned_hybrid_var(bool & is_bool) const {
         return m_imp->get_last_assigned_hybrid_var(is_bool);
+    }
+
+    std::ostream & Dynamic_manager::display_assigned_vars(std::ostream & out) const {
+        return m_imp->display_assigned_vars(out);
     }
 };

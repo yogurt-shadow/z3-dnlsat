@@ -137,9 +137,7 @@ namespace nlsat {
             INC, DEC, RAND, VSIDS
         } m_branching_order;
 
-        enum search_mode {
-            BOOL, ARITH, INIT, FINISH
-        } m_search_mode;
+        search_mode m_search_mode;
 
         // m_perm:     internal -> external
         // m_inv_perm: external -> internal
@@ -980,17 +978,33 @@ namespace nlsat {
                 m_xk = null_var;
             }
             else{
+                DTRACE(m_dm.display_assigned_vars(tout););
                 bool is_bool;
                 hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
                 if(v == null_var){
                     return;
                 }
-                SASSERT(!is_bool);
-                m_xk = v;
-                m_bk = null_var;
-                m_search_mode = ARITH;
-                m_assignment.reset(m_xk);
-                m_dm.undo_watched_clauses(m_xk, false);
+                // SASSERT(!is_bool);
+                // m_xk = v;
+                // m_bk = null_var;
+                // m_search_mode = ARITH;
+                // m_assignment.reset(m_xk);
+                // m_dm.undo_watched_clauses(m_xk, false);
+
+                if(is_bool){
+                    m_bk = m_pure_bool_vars[v];
+                    m_xk = null_var;
+                    m_search_mode = BOOL;
+                    m_bvalues[m_bk] = l_undef;
+                    m_dm.undo_watched_clauses(m_bk, true);
+                }
+                else {
+                    m_xk = v;
+                    m_bk = null_var;
+                    m_search_mode = ARITH;
+                    m_assignment.reset(m_xk);
+                    m_dm.undo_watched_clauses(m_xk, false);
+                }
             }
         }
 
@@ -1056,7 +1070,11 @@ namespace nlsat {
         // Keep undoing until stage is new_xk
         void undo_until_stage(var new_xk) {
             // wzh dynamic
-            var stage_var = (new_xk == null_var) ? null_var : m_dm.get_assigned_var(new_xk);
+            var stage_var = (new_xk == null_var) ? null_var : m_dm.get_stage_var(new_xk);
+            DTRACE(tout << "stage var: " << stage_var << std::endl;);
+            if(stage_var == null_var){
+                return;
+            }
             undo_until(stage_pred(m_xk, stage_var));
             // hzw dynamic
             // undo_until(stage_pred(m_xk, new_xk));
@@ -1449,6 +1467,7 @@ namespace nlsat {
                     save_new_stage_trail();
                 }
             }
+            DTRACE(m_dm.display_assigned_vars(tout););
         }
 
         /**
@@ -1457,7 +1476,8 @@ namespace nlsat {
         void select_witness() {
             scoped_anum w(m_am);
             SASSERT(!m_ism.is_full(m_infeasible[m_xk]));
-            m_ism.peek_in_complement(m_infeasible[m_xk], m_is_int[m_xk], w, m_randomize);
+            // m_ism.peek_in_complement(m_infeasible[m_xk], m_is_int[m_xk], w, m_randomize);
+            m_ism.peek_in_complement(m_infeasible[m_xk], m_is_int[m_xk], w, false);
             TRACE("nlsat", 
                   tout << "infeasible intervals: "; m_ism.display(tout, m_infeasible[m_xk]); tout << "\n";
                   tout << "assigning "; m_display_var(tout, m_xk) << "(x" << m_xk << ") -> " << w << "\n";);
@@ -1687,10 +1707,9 @@ namespace nlsat {
                     checkpoint();
                     clause * conflict_clause;
                     // exactly one is null_var
-                    SASSERT((m_xk == null_var) != (m_bk == null_var));
                     clause_vector clauses;
                     // find clauses unit to this hybrid var
-                    m_dm.find_next_process_clauses(m_xk, m_bk, clauses);
+                    m_dm.find_next_process_clauses(m_xk, m_bk, clauses, m_search_mode);
                     DTRACE(tout << "show clauses unit to "; display_hybrid_var(tout, m_xk, m_bk); tout << std::endl;
                         display_clause_vector(tout, clauses);
                     );
@@ -2022,6 +2041,10 @@ namespace nlsat {
                 // if (b_lvl == scope_lvl() /* same level */ && max_var(b) == m_xk /* same stage */) {
                 // wzh dynamic
                 // debug: when b is not an arith bool, return null_var
+                DTRACE(tout << "b_lvl: " << b_lvl << std::endl;
+                    tout << "sopced_lvl: " << scope_lvl() << std::endl;
+                    tout << "m_xk: " << m_xk << std::endl;
+                );
                 if(b_lvl == scope_lvl() && m_dm.same_stage_bool(b, m_xk)){
                     TRACE("nlsat_resolve", tout << "literal is in the same level and stage, increasing marks\n";);
                     m_num_marks++;
@@ -2411,6 +2434,7 @@ namespace nlsat {
                 // var new_max_var = max_var(sz, m_lemma.data());
 
                 var new_max_stage = m_dm.max_stage_lts(sz, m_lemma.data());
+                DTRACE(tout << "backtracking to stage: " << new_max_stage << ", curr: " << m_xk << "\n";);
                 DTRACE(display_trails(tout);
                     tout << "undo until stage " << new_max_stage << std::endl;);
                 undo_until_stage(new_max_stage);
@@ -3926,11 +3950,10 @@ namespace nlsat {
         }
 
         std::ostream & display_hybrid_var(std::ostream & out, var m_xk, bool_var m_bk) const {
-            SASSERT((m_xk == null_var) != (m_bk == null_var));
-            if(m_xk == null_var){
+            if(m_search_mode == BOOL){
                 out << "bool var: " << m_bk << " -> " << m_pure_bool_convert[m_bk];
             }
-            else if(m_bk == null_var){
+            else if(m_search_mode == ARITH){
                 out << "arith var: " << m_xk;
             }
             else {

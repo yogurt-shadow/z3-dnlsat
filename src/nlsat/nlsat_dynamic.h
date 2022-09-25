@@ -13,6 +13,10 @@
 #define DCTRACE(COND, CODE) CTRACE("dnlsat", COND, CODE)
 
 namespace nlsat {
+    enum search_mode {
+        BOOL, ARITH, INIT, FINISH
+    };
+
     using literal_index = var;
     using atom_index = var;
     using clause_index = var;
@@ -129,7 +133,7 @@ namespace nlsat {
         void push_assigned_var(hybrid_var x, bool is_bool);
         
 
-        hybrid_var get_assigned_var(var x) const;
+        hybrid_var get_stage_var(var x) const;
         void pop_last_var();
 
         var vsids_select(bool & is_bool);
@@ -141,7 +145,7 @@ namespace nlsat {
         // for bool var: atom index
         void undo_watched_clauses(hybrid_var x, bool is_bool);
 
-        void find_next_process_clauses(var x, bool_var b, clause_vector & clauses);
+        void find_next_process_clauses(var x, bool_var b, clause_vector & clauses, search_mode m_search_mode);
 
         void del_bool(bool_var b);
         void del_clauses();
@@ -166,5 +170,7 @@ namespace nlsat {
         var max_stage_or_unassigned_ps(polynomial_ref_vector const & ps) const;
         var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const;
         var max_stage_or_unassigned_atom(atom const * a) const;
+
+        std::ostream & display_assigned_vars(std::ostream & out) const;
     };
 };
