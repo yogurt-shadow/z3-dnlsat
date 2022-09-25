@@ -25,6 +25,7 @@ namespace nlsat {
          * Stage
          */
         var_vector m_find_stage;
+        var_vector m_bool_find_stage;
         unsigned m_stage;
 
         /**
@@ -221,6 +222,7 @@ namespace nlsat {
             m_hybrid_var_assigned_clauses.resize(m_num_hybrid, var_vector());
             m_hybrid_heap.set_bounds(m_num_hybrid);
             m_find_stage.resize(m_num_vars, null_var);
+            m_bool_find_stage.resize(m_num_bool, null_var);
         }
 
         // set hybrid var watch for each clause
@@ -494,6 +496,7 @@ namespace nlsat {
         void init_search(){
             DTRACE(tout << "dynamic init search\n";);
             m_find_stage.resize(m_num_vars, null_var);
+            m_bool_find_stage.resize(m_num_bool, null_var);
             m_hybrid_heap.set_bounds(m_num_hybrid);
             rebuild_var_heap();
             m_stage = 0;
@@ -661,6 +664,9 @@ namespace nlsat {
                         SASSERT(m_stage >= 1);
                         m_stage--;
                     }
+                    else {
+                        m_bool_find_stage[v] = null_var;
+                    }
                 }
             }
             DTRACE(display_arith_stage(tout););
@@ -683,6 +689,7 @@ namespace nlsat {
             }
             if(is_bool){
                 m_assigned_hybrid_vars.push_back(x);
+                m_bool_find_stage[x] = m_stage;
             }
             else {
                 m_assigned_hybrid_vars.push_back(x + m_num_bool);
@@ -1028,31 +1035,39 @@ namespace nlsat {
             m_conflict_bool.reset();
         }
 
-        var find_stage(var x) const {
+        // for bool var: pure bool index
+        var find_stage(hybrid_var x, bool is_bool) const {
             if(x == null_var){
                 return null_var;
             }
-            if(x < m_find_stage.size()){
-                return m_find_stage[x];
+            if(!is_bool){
+                if(x < m_find_stage.size()){
+                    return m_find_stage[x];
+                }
+                return null_var;
             }
-            return null_var;
+            else {
+                if(x < m_bool_find_stage.size()){
+                    return m_bool_find_stage[x];
+                }
+                return null_var;
+            }
         }
 
         bool same_stage_bool(bool_var b, var x) const {
             // for all bool literal, we return true
             if(m_atoms[b] == nullptr){
-                // return x == null_var;
-                return true;
+                return find_stage(m_pure_bool_convert[b], true) == x;
             }
             dynamic_atom const * curr = m_dynamic_atoms[b];
-            var stage = find_stage(x);
+            var stage = find_stage(x, false);
             bool contain = false;
             for(var v: curr->m_vars){
                 if(v == x){
                     contain = true;
                 }
                 else {
-                    var stage2 = find_stage(v);
+                    var stage2 = find_stage(v, false);
                     if(stage2 > stage){
                         return false;
                     }
@@ -1070,7 +1085,7 @@ namespace nlsat {
             m_pm.vars(p, curr);
             var x = 0;
             for(var v: curr){
-                var curr_stage = find_stage(v);
+                var curr_stage = find_stage(v, false);
                 if(x == 0 || curr_stage > x){
                     x = curr_stage;
                 }
@@ -1086,7 +1101,7 @@ namespace nlsat {
             m_pm.vars(p, curr);
             var res_x = 0, max_stage = 0;
             for(var v: curr){
-                var curr_stage = find_stage(v);
+                var curr_stage = find_stage(v, false);
                 if(max_stage == 0 || curr_stage > max_stage){
                     max_stage = curr_stage;
                     res_x = v;
@@ -1098,12 +1113,12 @@ namespace nlsat {
 
         var max_stage_bool(bool_var b) const {
             if(m_atoms[b] == nullptr){
-                return null_var;
+                return find_stage(m_pure_bool_convert[b], true);
             }
             dynamic_atom const * curr = m_dynamic_atoms[b];
             var res = 0;
             for(var v: curr->m_vars){
-                var curr = find_stage(v);
+                var curr = find_stage(v, false);
                 if(res == 0 || curr > res){
                     res = curr;
                     if(res == null_var){
@@ -1116,32 +1131,38 @@ namespace nlsat {
 
         var max_stage_lts(unsigned sz, literal const * cls) const {
             var x = 0;
-            bool all_bool = true;
+            // bool all_bool = true;
             for (unsigned i = 0; i < sz; i++) {
                 literal l = cls[i];
-                if (m_atoms[l.var()] != nullptr) {
-                    var y = max_stage_literal(l);
-                    if (x == 0 || y > x){
-                        x = y;
-                    }
-                    all_bool = false;
+                // if (m_atoms[l.var()] != nullptr) {
+                //     var y = max_stage_literal(l);
+                //     if (x == 0 || y > x){
+                //         x = y;
+                //     }
+                //     all_bool = false;
+                // }
+                var y = max_stage_literal(l);
+                if(x == 0 || y > x){
+                    x = y;
                 }
             }
-            return all_bool ? null_var : x;
+            // return all_bool ? null_var : x;
+            return x;
         }
 
         var max_stage_literal(literal l) const {
             return max_stage_bool(l.var());
         }
 
+        // only return arith var
         var max_stage_var(atom const * a) const {
             dynamic_atom const * curr = m_dynamic_atoms[a->bvar()];
             if(curr->m_vars.empty()){
                 return null_var;
             }
-            var res = *(curr->m_vars.begin()), max_stage = find_stage(res);
+            var res = *(curr->m_vars.begin()), max_stage = find_stage(res, false);
             for(var cur: curr->m_vars){
-                var curr_stage = find_stage(cur);
+                var curr_stage = find_stage(cur, false);
                 if(curr_stage > max_stage){
                     max_stage = curr_stage;
                     res = cur;
@@ -1170,7 +1191,7 @@ namespace nlsat {
                 if(!m_assignment.is_assigned(v)){
                     return v;
                 }
-                var curr = find_stage(v);
+                var curr = find_stage(v, false);
                 if(max_stage == 0 || curr > max_stage){
                     max_stage = curr;
                     res_x = v;
@@ -1197,7 +1218,7 @@ namespace nlsat {
                 if(!m_assignment.is_assigned(v)){
                     return v;
                 }
-                var curr_stage = find_stage(v);
+                var curr_stage = find_stage(v, false);
                 if(max_stage == 0 || curr_stage > max_stage){
                     max_stage = curr_stage;
                     res_x = v;
@@ -1212,7 +1233,7 @@ namespace nlsat {
                 if(!m_assignment.is_assigned(v)){
                     return v;
                 }
-                var curr_stage = find_stage(v);
+                var curr_stage = find_stage(v, false);
                 if(max_stage == 0 || curr_stage > max_stage){
                     max_stage = curr_stage;
                     res_x = v;
@@ -1262,6 +1283,14 @@ namespace nlsat {
             out << "display arith stage\n";
             for(var v = 0; v < m_find_stage.size(); v++){
                 out << "arith var " << v << ", stage: " << m_find_stage[v] << std::endl;
+            }
+            return out;
+        }
+
+        std::ostream & display_bool_stage(std::ostream & out) const {
+            out << "display bool stage\n";
+            for(var v = 0; v < m_bool_find_stage.size(); v++){
+                out << "bool var " << v << ", stage: " << m_bool_find_stage[v] << std::endl;
             }
             return out;
         }
@@ -1407,8 +1436,8 @@ namespace nlsat {
         m_imp->clause_decay_act();
     }
 
-    var Dynamic_manager::find_stage(var x) const {
-        return m_imp->find_stage(x);
+    var Dynamic_manager::find_stage(var x, bool is_bool) const {
+        return m_imp->find_stage(x, is_bool);
     }
 
     var Dynamic_manager::max_stage_literal(literal l) const {

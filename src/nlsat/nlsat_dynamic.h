@@ -170,7 +170,7 @@ namespace nlsat {
         void insert_conflict_from_bool(bool_var b);
         void insert_conflict_from_literals(unsigned sz, literal const * ls);
 
-        var find_stage(var x) const;
+        var find_stage(hybrid_var x, bool is_bool) const;
         var max_stage_literal(literal l) const;
         var max_stage_lts(unsigned sz, literal const * cls) const;
         bool all_assigned_bool_arith(bool_var b) const;

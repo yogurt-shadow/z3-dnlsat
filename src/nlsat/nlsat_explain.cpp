@@ -479,7 +479,7 @@ namespace nlsat {
                 bool normalized = false; // true if the literal needs to be normalized
 
                 // wzh dynamic
-                var max_stage = m_dm.find_stage(max);
+                var max_stage = m_dm.find_stage(max, false);
                 // hzw dynamic
                 for (unsigned i = 0; i < sz; i++) {
                     p = a->p(i);
@@ -638,7 +638,7 @@ namespace nlsat {
             for (unsigned i = 0; i < sz; i++) {
                 poly * q = ps.get(i);
                 // if (max_var(q) != x) {
-                if(m_dm.max_stage_poly(q) != m_dm.find_stage(x)){
+                if(m_dm.max_stage_poly(q) != m_dm.find_stage(x, false)){
                     qs.push_back(q);
                 }
                 else {
@@ -995,7 +995,7 @@ namespace nlsat {
                 //     continue;
                 
                 // wzh dynamic
-                if(m_dm.max_stage_poly(p) != m_dm.find_stage(y)){
+                if(m_dm.max_stage_poly(p) != m_dm.find_stage(y, false)){
                     continue;
                 }
                 // hzw dynamic
@@ -1356,7 +1356,7 @@ namespace nlsat {
                 // TRACE("wzh", tout << "[debug] max stage literal, max stage: " << find_stage(max) << std::endl;);
                 // TRACE("wzh", tout << "[debug] literal's max stage: " << max_stage_literal(new_lit) << std::endl;);
                 // TRACE("wzh", display_dynamic(tout) << std::endl;);
-                if (m_dm.max_stage_literal(new_lit) < m_dm.find_stage(max)) {
+                if (m_dm.max_stage_literal(new_lit) < m_dm.find_stage(max, false)) {
                 // if(!contains_literal(new_lit, max)){
                 // if (max_var(new_lit) < max) {
                 // if(false){
@@ -1493,7 +1493,7 @@ namespace nlsat {
         ineq_atom * select_lower_stage_eq(scoped_literal_vector & C, var max) {
             var_vector & xs = m_select_tmp;
             // wzh dynamic
-            var max_stage = m_dm.find_stage(max);
+            var max_stage = m_dm.find_stage(max, false);
             // hzw dynamic
             for (literal l : C) {
                 bool_var b = l.var();
@@ -1510,7 +1510,7 @@ namespace nlsat {
                         // if (y >= max)
                             // continue;
                         // wzh dynamic
-                        var curr_stage = m_dm.find_stage(y);
+                        var curr_stage = m_dm.find_stage(y, false);
                         if(curr_stage >= max_stage){
                             continue;
                         }
@@ -1823,7 +1823,7 @@ namespace nlsat {
                 p = ps.get(i);
                 int s = sign(p);
                 // if (max_var(p) != x) {
-                if(m_dm.max_stage_poly(p) != m_dm.find_stage(x)){
+                if(m_dm.max_stage_poly(p) != m_dm.find_stage(x, false)){
                     atom::kind k = (s == 0)?(atom::EQ):((s < 0)?(atom::LT):(atom::GT));
                     add_simple_assumption(k, p, false);
                     ps[i] = ps.back();

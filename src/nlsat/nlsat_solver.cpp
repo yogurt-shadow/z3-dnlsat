@@ -2432,8 +2432,8 @@ namespace nlsat {
             if (!found_decision) {
                 // Case 1)
                 // We just have to find the maximal variable in m_lemma, and return to that stage
-                // Remark: the lemma may contain only boolean literals, in this case new_max_var == null_var;
-                // var new_max_var = max_var(sz, m_lemma.data());
+                // previous: Remark: the lemma may contain only boolean literals, in this case new_max_var == null_var;
+                // current: for boolean literals, new_max_var is the max_stage of boolean literals, since we may peek bool var after arith var
 
                 var new_max_stage = m_dm.max_stage_lts(sz, m_lemma.data());
                 DTRACE(tout << "backtracking to stage: " << new_max_stage << ", curr: " << m_xk << "\n";);
