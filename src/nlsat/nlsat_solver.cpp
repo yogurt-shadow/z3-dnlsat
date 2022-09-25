@@ -1457,6 +1457,7 @@ namespace nlsat {
                     m_xk = null_var;
                     m_dm.push_assigned_var(m_pure_bool_convert[v], true);
                     m_search_mode = BOOL;
+                    DTRACE(tout << "pick bool var: b" << v << " -> " << m_pure_bool_convert[v] << std::endl;);
                 }
                 // for arith var: return arith index
                 else {
@@ -1465,6 +1466,7 @@ namespace nlsat {
                     m_dm.push_assigned_var(v, false);
                     m_search_mode = ARITH;
                     save_new_stage_trail();
+                    DTRACE(tout << "pick arith var: " << v << std::endl;);
                 }
             }
             DTRACE(m_dm.display_assigned_vars(tout););

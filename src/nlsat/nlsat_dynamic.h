@@ -13,6 +13,18 @@
 #define DCTRACE(COND, CODE) CTRACE("dnlsat", COND, CODE)
 
 namespace nlsat {
+    // dynamic mode:
+    // hybrid - 1
+    #define UNIFORM_MODE 1
+    // bool_first - 2
+    #define BOOL_FIRST_MODE 2
+    // theory_first -3
+    #define THEORY_FIRST_MODE 3
+
+    // define search mode
+    #define DYNAMIC_MODE THEORY_FIRST_MODE
+
+
     enum search_mode {
         BOOL, ARITH, INIT, FINISH
     };
