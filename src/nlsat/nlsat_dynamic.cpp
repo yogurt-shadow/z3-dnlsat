@@ -20,6 +20,8 @@ namespace nlsat {
 
         // bool var | arith var
         hybrid_var_vector m_assigned_hybrid_vars;
+        unsigned m_bool_in_stack;
+        unsigned m_arith_in_stack;
 
         /**
          * Stage
@@ -499,6 +501,13 @@ namespace nlsat {
             m_bool_find_stage.resize(m_num_bool, null_var);
             m_hybrid_heap.set_bounds(m_num_hybrid);
             rebuild_var_heap();
+            reset_assigned_vars();
+        }
+
+        void reset_assigned_vars(){
+            m_assigned_hybrid_vars.reset();
+            m_bool_in_stack = 0;
+            m_arith_in_stack = 0;
             m_stage = 0;
         }
 
@@ -603,6 +612,14 @@ namespace nlsat {
             return m_assigned_hybrid_vars.size();
         }
 
+        unsigned assigned_arith_size() const {
+            return m_arith_in_stack;
+        }
+
+        unsigned assigned_bool_size() const {
+            return m_bool_in_stack;
+        }
+
         // bool_var: return pure bool index
         hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const {
             if(m_assigned_hybrid_vars.empty()){
@@ -638,15 +655,14 @@ namespace nlsat {
             return null_var;
         }
 
-        hybrid_var get_stage_var(var x) const {
-            unsigned curr_stage = 0;
-            for(unsigned i = 0; i < m_assigned_hybrid_vars.size(); i++){
-                hybrid_var v = m_assigned_hybrid_vars[i];
-                if(is_arith_var(v)){
-                    if(curr_stage == x){
-                        return v - m_num_bool;
-                    }
-                    curr_stage++;
+        hybrid_var get_stage_var(stage x) const {
+            // stage 0 means initial status
+            if(x == 0){
+                return null_var;
+            }
+            for(var v = 0; v < m_find_stage.size(); v++){
+                if(m_find_stage[v] == x){
+                    return v;
                 }
             }
             return null_var;
@@ -663,13 +679,19 @@ namespace nlsat {
                         m_find_stage[v - m_num_bool] = null_var;
                         SASSERT(m_stage >= 1);
                         m_stage--;
+                        SASSERT(m_arith_in_stack >= 1);
+                        m_arith_in_stack--;
                     }
                     else {
                         m_bool_find_stage[v] = null_var;
+                        SASSERT(m_bool_in_stack >= 1);
+                        m_bool_in_stack--;
                     }
                 }
             }
-            DTRACE(display_arith_stage(tout););
+            DTRACE(display_arith_stage(tout);
+                display_bool_stage(tout);
+            );
         }
 
         inline bool is_arith_var(hybrid_var x) const {
@@ -689,14 +711,18 @@ namespace nlsat {
             }
             if(is_bool){
                 m_assigned_hybrid_vars.push_back(x);
+                m_bool_in_stack++;
                 m_bool_find_stage[x] = m_stage;
             }
             else {
                 m_assigned_hybrid_vars.push_back(x + m_num_bool);
-                m_find_stage[x] = m_stage;
+                m_arith_in_stack++;
                 m_stage++;
+                m_find_stage[x] = m_stage;
             }
-            DTRACE(display_arith_stage(tout););
+            DTRACE(display_arith_stage(tout);
+                display_bool_stage(tout);
+            );
         }
 
         // is_bool: returned var is bool var or not
@@ -921,11 +947,11 @@ namespace nlsat {
                 m_hybrid_var_assigned_clauses[x].push_back(ele);
             }
             m_hybrid_var_unit_clauses[x].reset();
-            DTRACE(tout << "after do watch clauses, display watch clauses\n";
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "after do watch clauses, display watch clauses\n";
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
         }
 
         bool unit_clause_contains(clause_index idx) const {
@@ -1023,11 +1049,11 @@ namespace nlsat {
                 m_hybrid_var_unit_clauses[x].push_back(ele);
             }
             m_hybrid_var_assigned_clauses[x].reset();
-            DTRACE(tout << "after undo watch clauses, display watch clauses\n";
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "after undo watch clauses, display watch clauses\n";
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
         }
 
         void reset_conflict_vars(){
@@ -1055,20 +1081,23 @@ namespace nlsat {
         }
 
         bool same_stage_bool(bool_var b, var x) const {
-            // for all bool literal, we return true
+            // when x == null_var, stage is zero
+            if(x == null_var){
+                return find_stage(m_pure_bool_convert[b], true) == 0;
+            }
+            stage stage1 = find_stage(x, false);
             if(m_atoms[b] == nullptr){
-                return find_stage(m_pure_bool_convert[b], true) == x;
+                return find_stage(m_pure_bool_convert[b], true) == stage1;
             }
             dynamic_atom const * curr = m_dynamic_atoms[b];
-            var stage = find_stage(x, false);
             bool contain = false;
             for(var v: curr->m_vars){
                 if(v == x){
                     contain = true;
                 }
                 else {
-                    var stage2 = find_stage(v, false);
-                    if(stage2 > stage){
+                    stage stage2 = find_stage(v, false);
+                    if(stage2 > stage1){
                         return false;
                     }
                 }
@@ -1364,7 +1393,15 @@ namespace nlsat {
         return m_imp->assigned_size();
     }
 
-    var Dynamic_manager::get_stage_var(var x) const {
+    unsigned Dynamic_manager::assigned_arith_size() const {
+        return m_imp->assigned_arith_size();
+    }
+
+    unsigned Dynamic_manager::assigned_bool_size() const {
+        return m_imp->assigned_bool_size();
+    }
+
+    var Dynamic_manager::get_stage_var(stage x) const {
         return m_imp->get_stage_var(x);
     }
 

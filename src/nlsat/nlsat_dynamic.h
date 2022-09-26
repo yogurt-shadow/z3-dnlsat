@@ -22,13 +22,14 @@ namespace nlsat {
     #define THEORY_FIRST_MODE 3
 
     // define search mode
-    #define DYNAMIC_MODE THEORY_FIRST_MODE
+    #define DYNAMIC_MODE BOOL_FIRST_MODE
 
 
     enum search_mode {
         BOOL, ARITH, INIT, FINISH
     };
 
+    using stage = var;
     using literal_index = var;
     using atom_index = var;
     using clause_index = var;
@@ -138,6 +139,8 @@ namespace nlsat {
 
         hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const;
         unsigned assigned_size() const;
+        unsigned assigned_arith_size() const;
+        unsigned assigned_bool_size() const;
 
         // is_bool: push bool var or arith var
         // for bool var: push pure bool index
@@ -145,7 +148,7 @@ namespace nlsat {
         void push_assigned_var(hybrid_var x, bool is_bool);
         
 
-        hybrid_var get_stage_var(var x) const;
+        hybrid_var get_stage_var(stage x) const;
         void pop_last_var();
 
         var vsids_select(bool & is_bool);

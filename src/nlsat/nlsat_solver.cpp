@@ -957,7 +957,6 @@ namespace nlsat {
                 m_dm.pop_last_var();
                 m_dm.undo_watched_clauses(b, true);
                 m_bk = b;
-                m_xk = null_var;
                 m_search_mode = BOOL;
             }
         }
@@ -974,8 +973,14 @@ namespace nlsat {
         void undo_new_stage() {
             DTRACE(tout << "undo new stage\n";);
             m_dm.pop_last_var();
-            if(m_dm.assigned_size() == 0){
+            if(m_dm.assigned_arith_size() == 0){
                 m_xk = null_var;
+                if(m_dm.assigned_bool_size() == 0){
+                    m_search_mode = ARITH;
+                }
+                else {
+                    m_search_mode = BOOL;
+                }
             }
             else{
                 DTRACE(m_dm.display_assigned_vars(tout););
@@ -984,23 +989,15 @@ namespace nlsat {
                 if(v == null_var){
                     return;
                 }
-                // SASSERT(!is_bool);
-                // m_xk = v;
-                // m_bk = null_var;
-                // m_search_mode = ARITH;
-                // m_assignment.reset(m_xk);
-                // m_dm.undo_watched_clauses(m_xk, false);
 
                 if(is_bool){
                     m_bk = m_pure_bool_vars[v];
-                    m_xk = null_var;
                     m_search_mode = BOOL;
                     m_bvalues[m_bk] = l_undef;
                     m_dm.undo_watched_clauses(m_bk, true);
                 }
                 else {
                     m_xk = v;
-                    m_bk = null_var;
                     m_search_mode = ARITH;
                     m_assignment.reset(m_xk);
                     m_dm.undo_watched_clauses(m_xk, false);
@@ -1072,12 +1069,8 @@ namespace nlsat {
             // wzh dynamic
             var stage_var = (new_xk == null_var) ? null_var : m_dm.get_stage_var(new_xk);
             DTRACE(tout << "stage var: " << stage_var << std::endl;);
-            if(stage_var == null_var){
-                return;
-            }
             undo_until(stage_pred(m_xk, stage_var));
             // hzw dynamic
-            // undo_until(stage_pred(m_xk, new_xk));
         }
 
         struct level_pred {
@@ -1217,40 +1210,6 @@ namespace nlsat {
             }
             return true;
         }
-
-        /**
-           \brief Process a clauses that contains only Boolean literals.
-        */
-        bool process_boolean_clause(clause const & cls) {
-            DTRACE(tout << "process boolean clause\n";
-                display(tout, cls); tout << std::endl;
-            );
-            SASSERT(m_xk == null_var);
-            unsigned num_undef   = 0;
-            unsigned first_undef = UINT_MAX;
-            unsigned sz = cls.size();
-            for (unsigned i = 0; i < sz; i++) {
-                literal l = cls[i];
-                SASSERT(m_atoms[l.var()] == nullptr);
-                SASSERT(value(l) != l_true);
-                if (value(l) == l_false)
-                    continue;
-                SASSERT(value(l) == l_undef);
-                num_undef++;
-                if (first_undef == UINT_MAX)
-                    first_undef = i;
-            }
-            if (num_undef == 0) 
-                return false;
-            SASSERT(first_undef != UINT_MAX);
-            if (num_undef == 1)
-                assign(cls[first_undef], mk_clause_jst(&cls)); // unit clause
-            else {
-                DTRACE(tout << "decide in process boolean clause\n";);
-                decide(cls[first_undef]);
-            }
-            return true;
-        }
         
         /**
            \brief assign l to true, because l + (justification of) s is infeasible in RCF in the current interpretation.
@@ -1315,127 +1274,6 @@ namespace nlsat {
             save_updt_eq_trail(m_var2eq[x]);
             m_var2eq[x] = a;
         }
-        
-        /**
-           \brief Process a clause that contains nonlinear arithmetic literals
-
-           If satisfy_learned is true, then learned clauses are satisfied even if m_lazy > 0
-        */
-        bool process_arith_clause(clause const & cls, bool satisfy_learned) {
-            if (!satisfy_learned && m_lazy >= 2 && cls.is_learned()) {
-                TRACE("nlsat", tout << "skip learned\n";);
-                return true; // ignore lemmas in super lazy mode
-            }
-            // SASSERT(m_xk == max_var(cls));
-            unsigned num_undef   = 0;                // number of undefined literals
-            unsigned first_undef = UINT_MAX;         // position of the first undefined literal
-            interval_set_ref first_undef_set(m_ism); // infeasible region of the first undefined literal
-            interval_set * xk_set = m_infeasible[m_xk]; // current set of infeasible interval for current variable
-            SASSERT(!m_ism.is_full(xk_set));
-            for (unsigned idx = 0; idx < cls.size(); ++idx) {
-                literal l = cls[idx];
-                checkpoint();
-                lbool val = value(l);
-                // if (value(l) == l_false)
-                    // continue;
-                // if (value(l) == l_true)
-                    // return true;  // could happen if clause is a tautology
-                if(val == l_false){
-                    continue;
-                }
-                if(val == l_true){
-                    return true;
-                }
-                SASSERT(val == l_undef);
-                // CTRACE("nlsat", max_var(l) != m_xk || value(l) != l_undef, display(tout); 
-                //        tout << "xk: " << m_xk << ", max_var(l): " << max_var(l) << ", l: "; display(tout, l) << "\n";
-                //        display(tout, cls) << "\n";);
-                // SASSERT(value(l) == l_undef);
-                // SASSERT(max_var(l) == m_xk);
-                bool_var b = l.var();
-                atom * a   = m_atoms[b];
-                SASSERT(a != nullptr);
-                interval_set_ref curr_set(m_ism);
-                // we disable this root atom
-                // TRACE("wzh", tout << "[debug] enter root reverse" << std::endl;);
-                // if(is_root_reverse(a)){
-                //     continue;
-                // }
-                // curr_set = m_evaluator.infeasible_intervals(a, l.sign(), &cls);
-                TRACE("wzh", tout << "[debug] current m_xk: " << m_xk << " ";
-                    m_display_var(tout, m_xk);
-                    tout << std::endl;
-                );
-                curr_set = m_evaluator.infeasible_intervals(a, l.sign(), &cls, m_xk);
-                TRACE("nlsat_inf_set", tout << "infeasible set for literal: "; display(tout, l); tout << "\n"; m_ism.display(tout, curr_set); tout << "\n";
-                      display(tout, cls) << "\n";); 
-                if (m_ism.is_empty(curr_set)) {
-                    TRACE("nlsat_inf_set", tout << "infeasible set is empty, found literal\n";);
-                    R_propagate(l, nullptr);
-                    SASSERT(is_satisfied(cls));
-                    return true;
-                }
-                if (m_ism.is_full(curr_set)) {
-                    TRACE("nlsat_inf_set", tout << "infeasible set is R, skip literal\n";);
-                    R_propagate(~l, nullptr);
-                    continue;
-                }
-                if (m_ism.subset(curr_set, xk_set)) {
-                    TRACE("nlsat_inf_set", tout << "infeasible set is a subset of current set, found literal\n";);
-                    R_propagate(l, xk_set);
-                    return true;
-                }
-                interval_set_ref tmp(m_ism);
-                tmp = m_ism.mk_union(curr_set, xk_set);
-                if (m_ism.is_full(tmp)) {
-                    TRACE("nlsat_inf_set", tout << "infeasible set + current set = R, skip literal\n";
-                          display(tout, cls) << "\n";);
-                    R_propagate(~l, tmp, false);
-                    continue;
-                }
-                num_undef++;
-                if (first_undef == UINT_MAX) {
-                    first_undef = idx;
-                    first_undef_set = curr_set;
-                }
-            }
-            TRACE("nlsat_inf_set", tout << "num_undef: " << num_undef << "\n";);
-            if (num_undef == 0) 
-                return false;
-            SASSERT(first_undef != UINT_MAX);
-            if (num_undef == 1) {
-                // unit clause
-                assign(cls[first_undef], mk_clause_jst(&cls)); 
-                updt_infeasible(first_undef_set);
-            }
-            else if ( satisfy_learned ||
-                     !cls.is_learned() /* must always satisfy input clauses */ ||
-                      m_lazy == 0 /* if not in lazy mode, we also satiffy lemmas */) {
-                TRACE("wzh", tout << "[debug] enter decide\n";);
-                decide(cls[first_undef]);
-                TRACE("wzh", tout << "[debug] exit decide\n";);
-                updt_infeasible(first_undef_set);
-            }
-            else {
-                TRACE("nlsat_lazy", tout << "skipping clause, satisfy_learned: " << satisfy_learned << ", cls.is_learned(): " << cls.is_learned()
-                      << ", lazy: " << m_lazy << "\n";);
-            }
-            return true;
-        }
-
-        /**
-           \brief Make sure m_bk is the first unassigned pure Boolean variable.
-           Set m_bk == null_bool_var if there is no unassigned pure Boolean variable.
-        */
-        void peek_next_bool_var() {
-            while (m_bk < m_atoms.size()) {
-                if (!m_dead[m_bk] && m_atoms[m_bk] == nullptr && m_bvalues[m_bk] == l_undef) {
-                    return;
-                }
-                m_bk++;
-            }
-            m_bk = null_bool_var;
-        }
 
         // m_bk: atom index
         void select_next_hybrid_var(){
@@ -1454,14 +1292,13 @@ namespace nlsat {
                 // for bool var: return atom index
                 if(is_bool){
                     m_bk = v;
-                    m_xk = null_var;
                     m_dm.push_assigned_var(m_pure_bool_convert[v], true);
                     m_search_mode = BOOL;
                     DTRACE(tout << "pick bool var: b" << v << " -> " << m_pure_bool_convert[v] << std::endl;);
                 }
                 // for arith var: return arith index
                 else {
-                    m_bk = null_var;
+                    // m_bk = null_var;
                     m_xk = v;
                     m_dm.push_assigned_var(v, false);
                     m_search_mode = ARITH;
@@ -1523,6 +1360,8 @@ namespace nlsat {
                 fix_patch();
                 DTRACE(show_all_assignment(tout););
                 SASSERT(check_satisfied(m_clauses));
+                // we check satisfied for all sat results
+                // NOTE: we do not put this statement into TRACE
                 check_dynamic_satisfied();
                 return true;
             }
@@ -1842,6 +1681,7 @@ namespace nlsat {
         lbool check() {
             TRACE("nlsat_smt2", display_smt2(tout););
             TRACE("nlsat_fd", tout << "is_full_dimensional: " << is_full_dimensional() << "\n";);
+            DTRACE(display_order_mode(std::cout););
             init_pure_bool();
             m_dm.set_var_num(num_vars());
             init_search();
@@ -2292,6 +2132,9 @@ namespace nlsat {
             SASSERT(check_marks());
             TRACE("nlsat_proof", tout << "STARTING RESOLUTION\n";);
             TRACE("nlsat_proof_sk", tout << "STARTING RESOLUTION\n";);
+            DTRACE(tout << "m_bk: " << m_bk << std::endl;
+                tout << "m_xk: " << m_xk << std::endl;
+            );
             // wzh vsids
             m_dm.reset_conflict_vars();
             // hzw vsids
@@ -2442,6 +2285,7 @@ namespace nlsat {
                 undo_until_stage(new_max_stage);
                 DTRACE(tout << "after undo until stage " << new_max_stage << std::endl;
                     display_trails(tout);
+                    tout << "search mode: " << mode2str(m_search_mode) << std::endl;
                 );
                 // SASSERT(m_xk == new_max_stage);
                 new_cls = mk_clause(sz, m_lemma.data(), true, m_lemma_assumptions.get());
@@ -3900,18 +3744,37 @@ namespace nlsat {
             return out;
         }
 
-        // enum kind { BVAR_ASSIGNMENT, INFEASIBLE_UPDT, NEW_LEVEL, NEW_STAGE, UPDT_EQ };
-        //     kind   m_kind;
-        //     union {
-        //         bool_var m_b;
-        //         interval_set * m_old_set;
-        //         atom         * m_old_eq;
-        //     };
-        //     trail(bool_var b, bvar_assignment):m_kind(BVAR_ASSIGNMENT), m_b(b) {}
-        //     trail(interval_set * old_set):m_kind(INFEASIBLE_UPDT), m_old_set(old_set) {}
-        //     trail(bool s, stage):m_kind(s ? NEW_STAGE : NEW_LEVEL) {}
-        //     trail(atom * a):m_kind(UPDT_EQ), m_old_eq(a) {}
+        std::string mode2str(search_mode s) const {
+            switch(s) {
+                case INIT:
+                    return "INIT";
 
+                case FINISH:
+                    return "FINISH";
+
+                case BOOL:
+                    return "BOOL";
+
+                case ARITH:
+                    return "ARITH";
+
+                default:
+                    UNREACHABLE();
+            }
+        }
+
+        std::ostream & display_order_mode(std::ostream & out) const {
+            #if DYNAMIC_MODE == UNIFORM_MODE
+                out << "-----------------uniform mode-----------------\n";
+            #elif DYNAMIC_MODE == BOOL_FIRST_MODE
+                out << "-----------------bool first mode-----------------\n";
+            #elif DYNAMIC_MODE == THEORY_FIRST_MODE
+                out << "-----------------theory first mode-----------------\n";
+            #endif
+
+            return out;
+        }
+        
         // Display Trail
         std::ostream & display_trails(std::ostream & out) const {
             out << "Display Trails\n";
