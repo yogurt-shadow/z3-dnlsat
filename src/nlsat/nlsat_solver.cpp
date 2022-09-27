@@ -234,6 +234,7 @@ namespace nlsat {
         bool                   m_check_lemmas;
         unsigned               m_max_conflicts;
         unsigned               m_lemma_count;
+        unsigned               m_curr_stage;
 
         // statistics
         unsigned               m_conflicts;
@@ -887,7 +888,7 @@ namespace nlsat {
             clause * cls = mk_clause_core(num_lits, lits, learned, a);
             ++m_lemma_count;
             TRACE("nlsat_sort", display(tout << "mk_clause:\n", *cls) << "\n";);
-            TRACE("wzh", tout << "[dynamic] sort clause" << std::endl;);
+            // TRACE("wzh", tout << "[dynamic] sort clause" << std::endl;);
             std::sort(cls->begin(), cls->end(), lit_lt(*this));
             TRACE("nlsat_sort", display(tout << "#" << m_lemma_count << " after sort:\n", *cls) << "\n";);
             if (learned && m_log_lemmas) {
@@ -962,6 +963,7 @@ namespace nlsat {
         }
 
         void undo_set_updt(interval_set * old_set) {
+            DTRACE(tout << "undo set update\n";);
             if (m_xk == null_var) return;
             var x = m_xk;
             if (x < m_infeasible.size()) {
@@ -973,6 +975,8 @@ namespace nlsat {
         void undo_new_stage() {
             DTRACE(tout << "undo new stage\n";);
             m_dm.pop_last_var();
+            SASSERT(m_curr_stage >= 1);
+            m_curr_stage--;
             if(m_dm.assigned_arith_size() == 0){
                 m_xk = null_var;
                 if(m_dm.assigned_bool_size() == 0){
@@ -1006,13 +1010,14 @@ namespace nlsat {
         }
 
         void undo_new_level() {
-            TRACE("wzh", tout << "[debug] undo new level" << std::endl;);
+            DTRACE(tout << "undo new level" << std::endl;);
             SASSERT(m_scope_lvl > 0);
             m_scope_lvl--;
             m_evaluator.pop(1);
         }
 
         void undo_updt_eq(atom * a) {
+            DTRACE(tout << "undo update equation\n";);
             if (m_var2eq.size() > m_xk)
                 m_var2eq[m_xk] = a; 
         }
@@ -1279,14 +1284,34 @@ namespace nlsat {
         void select_next_hybrid_var(){
             // we have finish search
             DTRACE(tout << "start of select next hybrid var\n";);
-            if(m_dm.assigned_size() >= m_num_hybrid_vars){
+            // we compare assigned size with hybrid_vars + 1, since we push null_var at the end of arith assignment
+            if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
                 DTRACE(tout << "process finished\n";);
                 m_xk = null_var;
                 m_bk = null_var;
-                m_dm.push_assigned_var(null_var, false);
                 m_search_mode = FINISH;
+                // // note: we also save stage when finish, otherwise something's wrong to undo new stage
+                // save_new_stage_trail();
+                // m_curr_stage++;
+                // m_stages++;
             }
             else {
+                // end of arith assignment
+                if(m_dm.assigned_arith_size() == num_vars()){
+                    DTRACE(tout << "end of arith assignment, new stage and push null_var\n";);
+                    m_dm.push_assigned_var(null_var, false);
+                    save_new_stage_trail();
+                    m_stages++;
+                    m_curr_stage++;
+                    // finish search
+                    if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
+                         DTRACE(tout << "process finished\n";);
+                        m_xk = null_var;
+                        m_bk = null_var;
+                        m_search_mode = FINISH;
+                        return;
+                    }
+                }
                 bool is_bool;
                 hybrid_var v = m_dm.vsids_select(is_bool);
                 // for bool var: return atom index
@@ -1294,7 +1319,8 @@ namespace nlsat {
                     m_bk = v;
                     m_dm.push_assigned_var(m_pure_bool_convert[v], true);
                     m_search_mode = BOOL;
-                    DTRACE(tout << "pick bool var: b" << v << " -> " << m_pure_bool_convert[v] << std::endl;);
+                    SASSERT(m_atoms[m_bk] == nullptr);
+                    DTRACE(tout << "[select] pick bool var: b" << v << " -> " << m_pure_bool_convert[v] << std::endl;);
                 }
                 // for arith var: return arith index
                 else {
@@ -1302,8 +1328,10 @@ namespace nlsat {
                     m_xk = v;
                     m_dm.push_assigned_var(v, false);
                     m_search_mode = ARITH;
+                    m_stages++;
+                    m_curr_stage++;
                     save_new_stage_trail();
-                    DTRACE(tout << "pick arith var: " << v << std::endl;);
+                    DTRACE(tout << "[select] pick arith var: " << v << std::endl;);
                 }
             }
             DTRACE(m_dm.display_assigned_vars(tout););
@@ -1391,6 +1419,10 @@ namespace nlsat {
 
         bool process_hybrid_clause(clause const & cls, bool satisfy_learned){
             DTRACE(tout << "show process clause:\n"; display(tout, cls); tout << std::endl;);
+            DTRACE(m_assignment.display(tout););
+            DTRACE(tout << "m_xk: " << m_xk << std::endl;
+                tout << "m_bk: " << m_bk << std::endl;
+            );
             if(m_search_mode == BOOL){
                 DTRACE(tout << "process hybrid clause bool\n";);
                 return process_hybrid_clause_bool(cls);
@@ -1544,7 +1576,7 @@ namespace nlsat {
                     return l_true;
                 }
                 while (true) {
-                    TRACE("wzh", tout << "[dynamic] enter while loop\n";);
+                    // TRACE("wzh", tout << "[dynamic] enter while loop\n";);
                     checkpoint();
                     clause * conflict_clause;
                     // exactly one is null_var
@@ -1718,6 +1750,7 @@ namespace nlsat {
             m_assignment.reset();
             m_dm.init_search();
             m_search_mode = INIT;
+            m_curr_stage = 0;
         }
 
         void init_pure_bool(){
@@ -1738,6 +1771,9 @@ namespace nlsat {
             m_num_hybrid_vars = m_num_pure_bools + num_vars();
             DTRACE(tout << "num of pure bools: " << m_num_pure_bools << std::endl;
                 tout << "num of hybrid vars: " << m_num_hybrid_vars << std::endl;
+            );
+            DTRACE(tout << "display pure bool vars\n";
+                display_var_vector(tout, m_pure_bool_vars);
             );
         }
 
@@ -1887,7 +1923,7 @@ namespace nlsat {
                     tout << "sopced_lvl: " << scope_lvl() << std::endl;
                     tout << "m_xk: " << m_xk << std::endl;
                 );
-                if(b_lvl == scope_lvl() && m_dm.same_stage_bool(b, m_xk)){
+                if(b_lvl == scope_lvl() && m_dm.same_stage_bool(b, m_curr_stage)){
                     TRACE("nlsat_resolve", tout << "literal is in the same level and stage, increasing marks\n";);
                     m_num_marks++;
                 }
@@ -1990,9 +2026,7 @@ namespace nlsat {
         */
         bool only_literals_from_previous_stages(unsigned num, literal const * ls) {
             for (unsigned i = 0; i < num; i++) {
-                // if (max_var(ls[i]) == m_xk)
-                //     return false;
-                if(m_dm.same_stage_literal(ls[i], m_xk)){
+                if(m_dm.same_stage_literal(ls[i], m_curr_stage)){
                     return false;
                 }
             }
@@ -2012,20 +2046,13 @@ namespace nlsat {
                 SASSERT(value(ls[i]) == l_false);
                 if (assigned_value(l) == l_false) {
                     unsigned lvl = m_levels[b];
-                    // TRACE("wzh", tout << "[debug] loop literal in max_scoped_lvl: ";
-                    //     display(tout, l);
-                    //     tout << std::endl;
-                    //     tout << "current level: " << m_levels[b] << std::endl;
-                    // );
                     if (lvl > max)
                         max = lvl;
                 }
                 else {
                     // l must be a literal from a previous stage that is false in the current interpretation
                     SASSERT(assigned_value(l) == l_undef);
-                    // SASSERT(max_var(b) != null_var);
                     SASSERT(m_xk       != null_var);
-                    // SASSERT(max_var(b) < m_xk);
                 }
             }
             return max;
@@ -2051,7 +2078,7 @@ namespace nlsat {
                 //         tout << "current level: " << m_levels[b] << std::endl;
                 // );
                 // if (assigned_value(l) == l_false && m_levels[b] == lvl) {
-                if (assigned_value(l) == l_false && m_levels[b] == lvl && m_dm.same_stage_bool(b, m_xk)) {
+                if (assigned_value(l) == l_false && m_levels[b] == lvl && m_dm.same_stage_bool(b, m_curr_stage)) {
                     // TRACE("wzh", tout << "[debug] loop literal: ";
                     //     display(tout, l);
                     //     tout << std::endl;
@@ -2088,8 +2115,7 @@ namespace nlsat {
             bool found_lvl   = false;
             for (unsigned i = 0; i < sz - 1; i++) {
                 literal l = lemma[i];
-                // if (max_var(l) == m_xk) {
-                if(m_dm.same_stage_literal(l, m_xk)){
+                if(m_dm.same_stage_literal(l, m_curr_stage)){
                     bool_var b = l.var();
                     if (!found_lvl) {
                         found_lvl = true;
@@ -2194,8 +2220,8 @@ namespace nlsat {
                 TRACE("wzh", tout << "[debug] show lemma: \n";
                     display(tout, m_lemma.size(), m_lemma.data());
                     tout << std::endl;
-                    tout << "[debug] current m_xk: " << m_xk << std::endl;
                 );
+                DTRACE(tout << "[debug] current m_xk: " << m_xk << std::endl;);
 
                 // wzh vsids
                 if(is_vsids()){
@@ -2203,10 +2229,18 @@ namespace nlsat {
                 }
                 // hzw vsids
 
+                DTRACE(m_dm.display_var_stage(tout);
+                    tout << "curr stage: " << m_curr_stage << std::endl;
+                );
+
                 // m_lemma is an implicating clause after backtracking current scope level.
                 if (found_decision){
                     TRACE("wzh", tout << "[debug] found decision" << std::endl;);
                     break;
+                }
+
+                else {
+                    DTRACE(tout << "not found decision\n";);
                 }
 
                 // If lemma only contains literals from previous stages, then we can stop.
@@ -2215,6 +2249,10 @@ namespace nlsat {
                 if (only_literals_from_previous_stages(m_lemma.size(), m_lemma.data())){
                     TRACE("wzh", tout << "[debug] all literals from previous stages" << std::endl;);
                     break;
+                }
+
+                else {
+                    DTRACE(tout << "exists literal in current stage\n";);
                 }
                 
                 // Conflict does not depend on the current decision, and it is still in the current stage.
@@ -2233,9 +2271,13 @@ namespace nlsat {
                     display(tout, m_lemma);
                     tout << std::endl;
                 );
-                TRACE("wzh", tout << "[debug] enter undo until level" << std::endl;);
+                DTRACE(tout << "before undo until level " << max_lvl << std::endl;
+                    display_trails(tout);
+                );
                 undo_until_level(max_lvl);
-                TRACE("wzh", tout << "[debug] exit undo until level" << std::endl;);
+                DTRACE(tout << "after undo until level " << max_lvl << std::endl;
+                    display_trails(tout);
+                );
                 top = m_trail.size();
                 TRACE("nlsat_resolve", tout << "scope_lvl: " << scope_lvl() << " num marks: " << m_num_marks << "\n";);
                 SASSERT(scope_lvl() == max_lvl);
@@ -2272,6 +2314,7 @@ namespace nlsat {
             //
             unsigned sz = m_lemma.size();
             clause * new_cls = nullptr;
+            DTRACE(m_dm.display_var_stage(tout););
             if (!found_decision) {
                 // Case 1)
                 // We just have to find the maximal variable in m_lemma, and return to that stage
@@ -2279,7 +2322,7 @@ namespace nlsat {
                 // current: for boolean literals, new_max_var is the max_stage of boolean literals, since we may peek bool var after arith var
 
                 var new_max_stage = m_dm.max_stage_lts(sz, m_lemma.data());
-                DTRACE(tout << "backtracking to stage: " << new_max_stage << ", curr: " << m_xk << "\n";);
+                DTRACE(tout << "backtracking to stage: " << new_max_stage << ", curr: " << m_curr_stage << "\n";);
                 DTRACE(display_trails(tout);
                     tout << "undo until stage " << new_max_stage << std::endl;);
                 undo_until_stage(new_max_stage);
@@ -2326,9 +2369,10 @@ namespace nlsat {
             m_dm.update_learnt_management();
             // hzw learnt management
 
-
             NLSAT_VERBOSE(display(verbose_stream(), *new_cls) << "\n";);
-            TRACE("wzh", tout << "[debug] enter process lemma" << std::endl;);
+            DTRACE(display(tout, *new_cls););
+            adjust_process_hybrid_var(*new_cls);
+            DTRACE(tout << "after adjust process hybrid var\n";);
             if (!process_hybrid_clause(*new_cls, true)) {
                 TRACE("nlsat", tout << "new clause triggered another conflict, restarting conflict resolution...\n";
                       display(tout, *new_cls) << "\n";
@@ -2340,6 +2384,61 @@ namespace nlsat {
             TRACE("wzh", tout << "[debug] exit process lemma\n";);
             TRACE("nlsat_resolve_done", display_assignment(tout););
             return true;
+        }
+
+        void adjust_process_hybrid_var(clause const & cls) {
+            DTRACE(m_assignment.display(tout););
+            bool_var b = null_var;
+            var v = null_var;
+            for(literal l: cls){
+                // bool literal
+                if(m_atoms[l.var()] == nullptr){
+                    // not assigned
+                    if(m_bvalues[l.var()] == l_undef){
+                        if(b == null_var || b == l.var()){
+                            b = l.var();
+                        }
+                        // not assigned twice, unreachable
+                        else {
+                            UNREACHABLE();
+                        }
+                    }
+                }
+                // arith literal
+                else {
+                    var x = m_dm.all_assigned_or_left_literal(l.var());
+                    // all assigned
+                    if(x == null_var){
+                        continue;
+                    }
+                    // not assigned
+                    if(v == null_var || v == x){
+                        v = x;
+                    }
+                    // not assigned, twice
+                    else {
+                        UNREACHABLE();
+                    }
+                }
+            }
+            // can only have just one null_var
+            if(b != null_var && v != null_var){
+                UNREACHABLE();
+            }
+            // bool not assigned
+            else if(b != null_var){
+                m_bk = b;
+                m_search_mode = BOOL;
+            }
+            // arith not assigned
+            else if(v != null_var){
+                m_xk = v;
+                m_search_mode = ARITH;
+            }
+            // all assigned
+            else {
+                DTRACE(tout << "all assigned clause\n";);
+            }
         }
 
         bool lemma_is_clause(clause const& cls) const {
@@ -3774,7 +3873,7 @@ namespace nlsat {
 
             return out;
         }
-        
+
         // Display Trail
         std::ostream & display_trails(std::ostream & out) const {
             out << "Display Trails\n";
@@ -3789,21 +3888,29 @@ namespace nlsat {
                         break;
 
                     case trail::NEW_LEVEL:
-                        out << "[NEW LEVEL]:\n";
+                        out << "------------------------------[NEW LEVEL]------------------------------\n";
                         break;
                     
                     case trail::NEW_STAGE:
-                        out << "[NEW STAGE]\n";
+                        out << "------------------------------[NEW STAGE]------------------------------\n";
                         break;
 
                     case trail::UPDT_EQ:
-                        out << "[UPDT_EQ] "; display(out, ele.m_old_eq); out << std::endl;
+                        out << "[UPDT_EQ] "; display(out, ele.m_old_eq);
                         break;
 
                     default:
                         UNREACHABLE();
                 }
             }
+            return out;
+        }
+
+        std::ostream & display_var_vector(std::ostream & out, var_vector const & vec) const {
+            for(auto ele: vec){
+                out << ele << " ";
+            }
+            out << std::endl;
             return out;
         }
 

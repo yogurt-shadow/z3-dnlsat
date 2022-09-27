@@ -18,15 +18,16 @@ namespace nlsat {
     #define UNIFORM_MODE 1
     // bool_first - 2
     #define BOOL_FIRST_MODE 2
-    // theory_first -3
+    // theory_first - 3
     #define THEORY_FIRST_MODE 3
 
     // define search mode
     #define DYNAMIC_MODE BOOL_FIRST_MODE
+    // #define DYNAMIC_MODE THEORY_FIRST_MODE
 
 
     enum search_mode {
-        BOOL, ARITH, INIT, FINISH
+        BOOL, ARITH, INIT, FINISH, SWITCH
     };
 
     using stage = var;
@@ -177,8 +178,8 @@ namespace nlsat {
         var max_stage_literal(literal l) const;
         var max_stage_lts(unsigned sz, literal const * cls) const;
         bool all_assigned_bool_arith(bool_var b) const;
-        bool same_stage_bool(bool_var b, var x) const;
-        bool same_stage_literal(literal l, var x) const;
+        bool same_stage_bool(bool_var b, stage x) const;
+        bool same_stage_literal(literal l, stage x) const;
         var max_stage_var(atom const * a) const;
         var max_stage_poly(poly const * p) const;
         var max_stage_var_poly(poly const * p) const;
@@ -186,6 +187,9 @@ namespace nlsat {
         var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const;
         var max_stage_or_unassigned_atom(atom const * a) const;
 
+        var all_assigned_or_left_literal(bool_var b) const;
+
         std::ostream & display_assigned_vars(std::ostream & out) const;
+        std::ostream & display_var_stage(std::ostream &) const;
     };
 };

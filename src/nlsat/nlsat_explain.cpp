@@ -364,7 +364,7 @@ namespace nlsat {
             // var x = max_var(p);
             // wzh dynamic
             var x = m_dm.max_stage_var_poly(p);
-            TRACE("wzh", tout << "[debug] max var in elim: " << x << std::endl;);
+            TRACE("nlsat_explain", tout << "[debug] max var in elim: " << x << std::endl;);
             // hzw dynamic
             unsigned k = degree(p, x);
             SASSERT(k > 0);
@@ -404,7 +404,7 @@ namespace nlsat {
                         return;
                     // lc is not the zero polynomial, but it vanished in the current interpretation.
                     // so we keep searching...
-                    TRACE("wzh", tout << "[debug] add zero assumption\n";);
+                    TRACE("nlsat_explain", tout << "[debug] add zero assumption\n";);
                     add_zero_assumption(lc);
                 }
                 if (k == 0) {
@@ -464,7 +464,7 @@ namespace nlsat {
            Remark: root atoms are not normalized
         */
         literal normalize(literal l, var max) {
-            TRACE("wzh", tout << "[debug] enter normalize literal" << std::endl;);
+            TRACE("nlsat_explain", tout << "[debug] enter normalize literal" << std::endl;);
             bool_var b = l.var();
             if (b == true_bool_var)
                 return l;
@@ -483,13 +483,13 @@ namespace nlsat {
                 // hzw dynamic
                 for (unsigned i = 0; i < sz; i++) {
                     p = a->p(i);
-                    TRACE("wzh", tout << "[debug] show polynomial:\n";
+                    TRACE("nlsat_explain", tout << "[debug] show polynomial:\n";
                         m_pm.display(tout, p);
                         tout << std::endl;
                     );
                     // if (max_var(p) == max)
                     if(m_dm.max_stage_var_poly(p) == max){
-                        TRACE("wzh", tout << "[debug] max stage is equal to max, enter elim vanishing\n";);
+                        TRACE("nlsat_explain", tout << "[debug] max stage is equal to max, enter elim vanishing\n";);
                         elim_vanishing(p); // eliminate vanishing coefficients of max
                     }
                     // if (is_const(p) || max_var(p) < max) {
@@ -999,7 +999,7 @@ namespace nlsat {
                     continue;
                 }
                 // hzw dynamic
-                TRACE("wzh", tout << "[debug] consider polynomial:\n";
+                TRACE("nlsat_explain", tout << "[debug] consider polynomial:\n";
                     m_pm.display(tout, p);
                     tout << std::endl;
                 );
@@ -1008,7 +1008,7 @@ namespace nlsat {
                 // Otherwise, the isolate_roots procedure will assume p is a constant polynomial.
                 m_am.isolate_roots(p, undef_var_assignment(m_assignment, y), roots);
                 unsigned num_roots = roots.size();
-                TRACE("wzh", tout << "[debug] num roots: " << num_roots << std::endl;);
+                TRACE("nlsat_explain", tout << "[debug] num roots: " << num_roots << std::endl;);
                 for (unsigned i = 0; i < num_roots; i++) {
                     int s = m_am.compare(y_val, roots[i]);
                     TRACE("nlsat_explain", 
@@ -1094,7 +1094,7 @@ namespace nlsat {
                 m_todo.insert(p);
             }
             // var x = m_todo.remove_max_polys(ps);
-            TRACE("wzh", tout << "[dynamic] show polynomials before var:\n";
+            TRACE("nlsat_explain", tout << "[dynamic] show polynomials before var:\n";
                 for(auto ele: ps){
                     m_pm.display(tout << std::endl, ele);
                 }
@@ -1103,16 +1103,16 @@ namespace nlsat {
             // wzh dynamic
             polynomial_ref_vector todo_ps(m_pm);
             m_todo.collect_ps(todo_ps);
-            TRACE("wzh", tout << "[dynamic] show todo polynomials:\n";
+            TRACE("nlsat_explain", tout << "[dynamic] show todo polynomials:\n";
                 for(auto ele: todo_ps){
                     m_pm.display(tout << std::endl, ele);
                 }
                 tout << std::endl;
             );
             var x = m_dm.max_stage_or_unassigned_ps(todo_ps);
-            TRACE("wzh", tout << "[dynamic] next projection var: " << x << std::endl;);
+            TRACE("nlsat_explain", tout << "[dynamic] next projection var: " << x << std::endl;);
             m_todo.remove_var_polys(ps, x);
-            TRACE("wzh", tout << "[dynamic] show polynomials after remove:\n";
+            TRACE("nlsat_explain", tout << "[dynamic] show polynomials after remove:\n";
                 for(auto ele: ps){
                     m_pm.display(tout << std::endl, ele);
                 }
@@ -1136,7 +1136,7 @@ namespace nlsat {
                 if (m_todo.empty())
                     break;
                 // x = m_todo.remove_max_polys(ps);
-                TRACE("wzh", tout << "[dynamic] show polynomials before var:\n";
+                TRACE("nlsat_explain", tout << "[dynamic] show polynomials before var:\n";
                     for(auto ele: ps){
                         m_pm.display(tout << std::endl, ele);
                     }
@@ -1145,23 +1145,23 @@ namespace nlsat {
                 // wzh dynamic
                 polynomial_ref_vector todo_ps(m_pm);
                 m_todo.collect_ps(todo_ps);
-                TRACE("wzh", tout << "[dynamic] show todo polynomials:\n";
+                TRACE("nlsat_explain", tout << "[dynamic] show todo polynomials:\n";
                     for(auto ele: todo_ps){
                         m_pm.display(tout << std::endl, ele);
                     }
                     tout << std::endl;
                 );
                 x = m_dm.max_stage_or_unassigned_ps(todo_ps);
-                TRACE("wzh", tout << "[dynamic] next projection var: " << x << std::endl;);
+                TRACE("nlsat_explain", tout << "[dynamic] next projection var: " << x << std::endl;);
                 m_todo.remove_var_polys(ps, x);
-                TRACE("wzh", tout << "[dynamic] show polynomials after remove:\n";
+                TRACE("nlsat_explain", tout << "[dynamic] show polynomials after remove:\n";
                     for(auto ele: ps){
                         m_pm.display(tout << std::endl, ele);
                     }
                     tout << std::endl;
                 );
                 // hzw dynamic
-                TRACE("wzh", tout << "[dynamic] adding cell literals for var: " << x << std::endl;);
+                TRACE("nlsat_explain", tout << "[dynamic] adding cell literals for var: " << x << std::endl;);
                 add_cell_lits(ps, x);
             }
         }
@@ -1267,7 +1267,7 @@ namespace nlsat {
             polynomial_ref        new_factor(m_pm);
             for (unsigned s = 0; s < num_factors; s++) {
                 poly * f = _a->p(s);
-                TRACE("wzh", tout << "[debug] loop factors:\n";
+                TRACE("nlsat_explain", tout << "[debug] loop factors:\n";
                     m_pm.display(tout, f);
                     tout << std::endl;
                 );
@@ -1346,16 +1346,16 @@ namespace nlsat {
                 atom::kind new_k = _a->get_kind();
                 if (atom_sign < 0)
                     new_k = atom::flip(new_k);
-                TRACE("wzh", tout << "[debug] make ineq literal for new lit\n";);
+                TRACE("nlsat_explain", tout << "[debug] make ineq literal for new lit\n";);
                 new_lit = m_solver.mk_ineq_literal(new_k, new_factors.size(), new_factors.data(), new_factors_even.data());
                 if (l.sign())
                     new_lit.neg();
                 TRACE("nlsat_simplify_core", tout << "simplified literal:\n"; display(tout, new_lit) << "\n" << m_solver.value(new_lit) << "\n";);
-                // TRACE("wzh", tout << "[debug] simplified literal:\n"; display(tout, new_lit) << std::endl;);
-                // TRACE("wzh", tout << "[debug] display max var: " << max << std::endl;);
-                // TRACE("wzh", tout << "[debug] max stage literal, max stage: " << find_stage(max) << std::endl;);
-                // TRACE("wzh", tout << "[debug] literal's max stage: " << max_stage_literal(new_lit) << std::endl;);
-                // TRACE("wzh", display_dynamic(tout) << std::endl;);
+                // TRACE("nlsat_explain", tout << "[debug] simplified literal:\n"; display(tout, new_lit) << std::endl;);
+                // TRACE("nlsat_explain", tout << "[debug] display max var: " << max << std::endl;);
+                // TRACE("nlsat_explain", tout << "[debug] max stage literal, max stage: " << find_stage(max) << std::endl;);
+                // TRACE("nlsat_explain", tout << "[debug] literal's max stage: " << max_stage_literal(new_lit) << std::endl;);
+                // TRACE("nlsat_explain", display_dynamic(tout) << std::endl;);
                 if (m_dm.max_stage_literal(new_lit) < m_dm.find_stage(max, false)) {
                 // if(!contains_literal(new_lit, max)){
                 // if (max_var(new_lit) < max) {
@@ -1364,7 +1364,7 @@ namespace nlsat {
                         new_lit = l;
                     }
                     else {
-                        TRACE("wzh", tout << "[debug] enter new literal\n";);
+                        TRACE("nlsat_explain", tout << "[debug] enter new literal\n";);
                         add_literal(new_lit);
                         new_lit = true_literal;
                     }
@@ -1388,16 +1388,16 @@ namespace nlsat {
             info.m_x = m_dm.max_stage_var_poly(info.m_eq);
             var_vector curr_vars;
             m_pm.vars(eq, curr_vars);
-            TRACE("wzh", tout << "[debug] vars in equal: " << std::endl;
+            TRACE("nlsat_explain", tout << "[debug] vars in equal: " << std::endl;
                 for(var v:curr_vars){
                     tout << v << " ";
                 }
                 tout << std::endl;
             );
-            TRACE("wzh", tout << "[debug] max var for equal: " << info.m_x << std::endl;);
+            TRACE("nlsat_explain", tout << "[debug] max var for equal: " << info.m_x << std::endl;);
             // hzw dynamic
             info.m_k  = m_pm.degree(eq, info.m_x);
-            TRACE("wzh", tout << "[debug] degree of max var: " << info.m_k << std::endl;);
+            TRACE("nlsat_explain", tout << "[debug] degree of max var: " << info.m_k << std::endl;);
             polynomial_ref lc_eq(m_pm);
             lc_eq           = m_pm.coeff(eq, info.m_x, info.m_k);
             info.m_lc       = lc_eq.get();
@@ -1542,33 +1542,33 @@ namespace nlsat {
             // Simplify using equations in the core
             // fix bug Mulligan here
             while (!C.empty()) {
-                TRACE("wzh", tout << "[debug] select stage equal\n";);
+                TRACE("nlsat_explain", tout << "[debug] select stage equal\n";);
                 poly * eq = select_eq(C, max);
                 if (eq == nullptr)
                     break;
-                TRACE("wzh", tout << "[debug] select equal for simplify\n";
+                TRACE("nlsat_explain", tout << "[debug] select equal for simplify\n";
                     m_pm.display(tout, eq);
                     tout << std::endl;
                 );
                 TRACE("nlsat_simplify_core", tout << "using equality for simplifying core\n"; 
                       m_pm.display(tout, eq, m_solver.display_proc()); tout << "\n";);
                 if (!simplify(C, eq, max)){
-                    TRACE("wzh", tout << "[debug] break here\n";);
+                    TRACE("nlsat_explain", tout << "[debug] break here\n";);
                     break;
                 }
             }
             // Simplify using equations using variables from lower stages.
             while (!C.empty()) {
-                TRACE("wzh", tout << "[debug] selecet lower stage equal\n";);
+                TRACE("nlsat_explain", tout << "[debug] selecet lower stage equal\n";);
                 ineq_atom * eq = select_lower_stage_eq(C, max);
                 if (eq == nullptr)
                     break;
                 SASSERT(eq->size() == 1);
                 SASSERT(!eq->is_even(0));
                 poly * eq_p = eq->p(0);
-                TRACE("wzh", tout << "[debug] enter verify" << std::endl;);
+                TRACE("nlsat_explain", tout << "[debug] enter verify" << std::endl;);
                 VERIFY(simplify(C, eq_p, max));
-                TRACE("wzh", tout << "[debug] exit verify" << std::endl;);
+                TRACE("nlsat_explain", tout << "[debug] exit verify" << std::endl;);
                 // add equation as an assumption                
                 TRACE("nlsat_simpilfy_core", display(tout << "adding equality as assumption ", literal(eq->bvar(), true)); tout << "\n";);
                 add_literal(literal(eq->bvar(), true));
@@ -1606,8 +1606,8 @@ namespace nlsat {
                 // fix bug for MulliganEconomicsModel0054e
                 simplify(m_core2, max);
                 // TRACE("nlsat_explain", display(tout << "core after simplify\n", m_core2) << "\n";);
-                // TRACE("wzh", tout << "[dynamic] we disable simplify currently" << std::endl;);
-                TRACE("wzh", tout << "[dynamic] we enable simplify currently" << std::endl;);
+                // TRACE("nlsat_explain", tout << "[dynamic] we disable simplify currently" << std::endl;);
+                TRACE("nlsat_explain", tout << "[dynamic] we enable simplify currently" << std::endl;);
                 main(m_core2.size(), m_core2.data());
                 m_core2.reset();
             }
