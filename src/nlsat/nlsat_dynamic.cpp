@@ -20,6 +20,9 @@ namespace nlsat {
 
         // bool var | arith var
         hybrid_var_vector m_assigned_hybrid_vars;
+        var_vector m_arith_assigned_index;
+        var_vector m_bool_assigned_index;
+
         unsigned m_bool_in_stack;
         unsigned m_arith_in_stack;
 
@@ -94,11 +97,13 @@ namespace nlsat {
             bool operator()(hybrid_var v1, hybrid_var v2) const {
                 // two bool vars
                 if(v1 < m_num_bool && v2 < m_num_bool){
-                    return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
+                    // return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
+                    return v1 < v2;
                 }
                 // two arith vars
                 else if(v1 >= m_num_bool && v2 >= m_num_bool){
-                    return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
+                    // return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
+                    return v1 < v2;
                 }
                 else {
                     SASSERT((v1 < m_num_bool) != (v2 < m_num_bool));
@@ -506,6 +511,10 @@ namespace nlsat {
 
         void reset_assigned_vars(){
             m_assigned_hybrid_vars.reset();
+            m_bool_assigned_index.reset();
+            m_arith_assigned_index.reset();
+            m_bool_assigned_index.resize(m_num_bool, null_var);
+            m_arith_assigned_index.resize(m_num_vars, null_var);
             m_bool_in_stack = 0;
             m_arith_in_stack = 0;
             m_stage = 0;
@@ -680,18 +689,22 @@ namespace nlsat {
                 }
                 else {
                     SASSERT(!m_hybrid_heap.contains(v));
-                    m_hybrid_heap.insert(v);
+                    if(!m_hybrid_heap.contains(v)){
+                        m_hybrid_heap.insert(v);
+                    }
                     if(is_arith_var(v)){
                         m_find_stage[v - m_num_bool] = null_var;
                         SASSERT(m_stage >= 1);
                         m_stage--;
                         SASSERT(m_arith_in_stack >= 1);
                         m_arith_in_stack--;
+                        m_arith_assigned_index[v - m_num_bool] = null_var;
                     }
                     else {
                         m_bool_find_stage[v] = null_var;
                         SASSERT(m_bool_in_stack >= 1);
                         m_bool_in_stack--;
+                        m_bool_assigned_index[v] = null_var;
                     }
                 }
             }
@@ -718,12 +731,14 @@ namespace nlsat {
                 m_assigned_hybrid_vars.push_back(x);
                 m_bool_in_stack++;
                 m_bool_find_stage[x] = m_stage;
+                m_bool_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
             }
             else {
                 m_assigned_hybrid_vars.push_back(x + m_num_bool);
                 m_arith_in_stack++;
                 m_stage++;
                 m_find_stage[x] = m_stage;
+                m_arith_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
             }
             // DTRACE(display_arith_stage(tout);
             //     display_bool_stage(tout);
@@ -734,9 +749,11 @@ namespace nlsat {
         // for bool var: return atom index
         // for arith var: return arith index
         hybrid_var vsids_select(bool & is_bool){
-            // DTRACE(m_hybrid_heap.display(tout););
+            DTRACE(m_hybrid_heap.display(tout););
             SASSERT(!m_hybrid_heap.empty());
             hybrid_var v = m_hybrid_heap.erase_min();
+            DTRACE(tout << "pop hybrid var " << v << std::endl;);
+            DTRACE(m_hybrid_heap.display(tout););
             if(v < m_num_bool){
                 is_bool = true;
                 return m_pure_bool_vars[v];
@@ -1239,6 +1256,16 @@ namespace nlsat {
             }
         }
 
+        void get_bool_vars_literals(unsigned num, literal const * ls, bool_var_table & vec) const {
+            vec.reset();
+            for(unsigned i = 0; i < num; i++){
+                literal l = ls[i];
+                if(m_atoms[l.var()] == nullptr){
+                    vec.insert_if_not_there(m_pure_bool_convert[l.var()]);
+                }
+            }
+        }
+
         var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const {
             var_table curr_vars;
             get_vars_literals(num, ls, curr_vars);
@@ -1284,6 +1311,46 @@ namespace nlsat {
                     UNREACHABLE();
                 }
                 res = v;
+            }
+            return res;
+        }
+
+        var find_assigned_index(hybrid_var v, bool is_bool) const {
+            return is_bool ? m_bool_assigned_index[v] : m_arith_assigned_index[v];
+        }
+
+        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const {
+            hybrid_var res = null_var;
+            var_table curr_vars;
+            bool_var_table curr_bools;
+            get_vars_literals(sz, ls, curr_vars);
+            get_bool_vars_literals(sz, ls, curr_bools);
+            unsigned max_index = 0;
+            for(var v: curr_vars){
+                var index = find_assigned_index(v, false);
+                if(index == null_var){
+                    UNREACHABLE();
+                }
+                else {
+                    if(index >= max_index){
+                        max_index = index;
+                        res = v;
+                        is_bool = false;
+                    }
+                }
+            }
+            for(bool_var b: curr_bools){
+                var index = find_assigned_index(b, true);
+                if(index == null_var){
+                    UNREACHABLE();
+                }
+                else {
+                    if(index >= max_index){
+                        max_index = index;
+                        res = b;
+                        is_bool = true;
+                    }
+                }
             }
             return res;
         }
@@ -1564,6 +1631,10 @@ namespace nlsat {
         return m_imp->get_last_assigned_hybrid_var(is_bool);
     }
 
+    var Dynamic_manager::get_last_assigned_arith_var() const {
+        return m_imp->get_last_assigned_arith_var();
+    }
+
     std::ostream & Dynamic_manager::display_assigned_vars(std::ostream & out) const {
         return m_imp->display_assigned_vars(out);
     }
@@ -1574,5 +1645,9 @@ namespace nlsat {
 
     std::ostream & Dynamic_manager::display_var_stage(std::ostream & out) const {
         return m_imp->display_var_stage(out);
+    }
+
+    hybrid_var Dynamic_manager::max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const {
+        return m_imp->max_assigned_var(sz, ls, is_bool);
     }
 };

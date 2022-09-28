@@ -24,6 +24,7 @@ namespace nlsat {
     // define search mode
     #define DYNAMIC_MODE BOOL_FIRST_MODE
     // #define DYNAMIC_MODE THEORY_FIRST_MODE
+    // #define DYNAMIC_MODE UNIFORM_MODE
 
 
     enum search_mode {
@@ -139,6 +140,7 @@ namespace nlsat {
         bool check_restart_requirement();
 
         hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const;
+        var get_last_assigned_arith_var() const;
         unsigned assigned_size() const;
         unsigned assigned_arith_size() const;
         unsigned assigned_bool_size() const;
@@ -186,6 +188,8 @@ namespace nlsat {
         var max_stage_or_unassigned_ps(polynomial_ref_vector const & ps) const;
         var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const;
         var max_stage_or_unassigned_atom(atom const * a) const;
+        
+        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const;
 
         var all_assigned_or_left_literal(bool_var b) const;
 
