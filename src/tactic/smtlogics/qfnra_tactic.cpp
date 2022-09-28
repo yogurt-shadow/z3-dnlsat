@@ -46,7 +46,7 @@ tactic * mk_qfnra_tactic(ast_manager & m, params_ref const& p) {
                     mk_propagate_values_tactic(m, p),
 
                     // wzh tactic
-                    mk_qfnra_nlsat_tactic(m, p1)
+                    mk_qfnra_nlsat_tactic(m, p)
                     // hzw tactic
                     
                     // or_else(
