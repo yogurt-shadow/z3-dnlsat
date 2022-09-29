@@ -20,6 +20,8 @@ namespace nlsat {
     #define BOOL_FIRST_MODE 2
     // theory_first - 3
     #define THEORY_FIRST_MODE 3
+
+    // used for debug
     // static bool first - 4
     #define ORIGIN_STATIC_BOOL_FIRST_MODE 4
 
@@ -34,7 +36,7 @@ namespace nlsat {
         BOOL, ARITH, INIT, FINISH, SWITCH
     };
 
-    using stage = var;
+    using stage_var = var;
     using literal_index = var;
     using atom_index = var;
     using clause_index = var;
@@ -154,7 +156,7 @@ namespace nlsat {
         void push_assigned_var(hybrid_var x, bool is_bool);
         
 
-        hybrid_var get_stage_var(stage x) const;
+        hybrid_var get_stage_var(stage_var x) const;
         void pop_last_var();
 
         var vsids_select(bool & is_bool);
@@ -183,8 +185,8 @@ namespace nlsat {
         var max_stage_literal(literal l) const;
         var max_stage_lts(unsigned sz, literal const * cls) const;
         bool all_assigned_bool_arith(bool_var b) const;
-        bool same_stage_bool(bool_var b, stage x) const;
-        bool same_stage_literal(literal l, stage x) const;
+        bool same_stage_bool(bool_var b, stage_var x) const;
+        bool same_stage_literal(literal l, stage_var x) const;
         var max_stage_var(atom const * a) const;
         var max_stage_poly(poly const * p) const;
         var max_stage_var_poly(poly const * p) const;
@@ -192,7 +194,7 @@ namespace nlsat {
         var max_stage_or_unassigned_literals(unsigned num, literal const * ls) const;
         var max_stage_or_unassigned_atom(atom const * a) const;
         
-        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const;
+        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool, stage_var & max_stage) const;
 
         var all_assigned_or_left_literal(bool_var b) const;
 

@@ -326,12 +326,12 @@ namespace nlsat {
                     }
                 }
             }
-            DTRACE(tout << "after set watch, display watch clauses\n";
-                display_var_watched_clauses(tout);
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "after set watch, display watch clauses\n";
+            //     display_var_watched_clauses(tout);
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
             DTRACE(tout << "end of set watch\n";);
         }
 
@@ -695,7 +695,7 @@ namespace nlsat {
             return null_var;
         }
 
-        hybrid_var get_stage_var(stage x) const {
+        hybrid_var get_stage_var(stage_var x) const {
             // stage 0 means initial status
             if(x == 0){
                 return null_var;
@@ -824,14 +824,10 @@ namespace nlsat {
             else {
                 UNREACHABLE();
             }
-            DTRACE(tout << "size: " << m_hybrid_var_unit_clauses.size() << std::endl;);
-            DTRACE(tout << "clause size: " << m_clauses.size() << std::endl;);
             // clause
             for(auto ele: m_hybrid_var_unit_clauses[v]){
-                DTRACE(tout << "loop: " << ele << std::endl;);
                 res.push_back(m_clauses[ele]);
             }
-            DTRACE(tout << "here1\n";);
             // learned
             for(unsigned i = 0; i < m_learned.size(); i++){
                 clause * cls = m_learned[i];
@@ -839,7 +835,6 @@ namespace nlsat {
                     res.push_back(cls);
                 }
             }
-            DTRACE(tout << "here2\n";);
         }
 
         // only left this hybrid var unassigned
@@ -990,12 +985,12 @@ namespace nlsat {
             else {
                 x = x + m_num_bool;
             }
-            DTRACE(tout << "do watched clauses for hybrid var " << x << std::endl;
-                display_var_watched_clauses(tout);
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "do watched clauses for hybrid var " << x << std::endl;
+            //     display_var_watched_clauses(tout);
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
             // watched clauses ==> unit clauses
             for(unsigned id = 0; id < m_hybrid_var_watched_clauses[x].size(); id++){
                 clause_index idx = m_hybrid_var_watched_clauses[x][id];
@@ -1026,12 +1021,12 @@ namespace nlsat {
                 m_hybrid_var_assigned_clauses[x].push_back(ele);
             }
             m_hybrid_var_unit_clauses[x].reset();
-            DTRACE(tout << "after do watch clauses, display watch clauses\n";
-                display_var_watched_clauses(tout);
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "after do watch clauses, display watch clauses\n";
+            //     display_var_watched_clauses(tout);
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
         }
 
         bool unit_clause_contains(clause_index idx) const {
@@ -1129,11 +1124,11 @@ namespace nlsat {
                 m_hybrid_var_unit_clauses[x].push_back(ele);
             }
             m_hybrid_var_assigned_clauses[x].reset();
-            DTRACE(tout << "after undo watch clauses, display watch clauses\n";
-                display_clauses_watch(tout);
-                display_unit_clauses(tout);
-                display_assigned_clauses(tout);
-            );
+            // DTRACE(tout << "after undo watch clauses, display watch clauses\n";
+            //     display_clauses_watch(tout);
+            //     display_unit_clauses(tout);
+            //     display_assigned_clauses(tout);
+            // );
         }
 
         void reset_conflict_vars(){
@@ -1160,14 +1155,14 @@ namespace nlsat {
             }
         }
 
-        bool same_stage_bool(bool_var b, stage stage1) const {
+        bool same_stage_bool(bool_var b, stage_var stage1) const {
             if(m_atoms[b] == nullptr){
                 return find_stage(m_pure_bool_convert[b], true) == stage1;
             }
             dynamic_atom const * curr = m_dynamic_atoms[b];
             bool contain = false;
             for(var v: curr->m_vars){
-                stage stage2 = find_stage(v, false);
+                stage_var stage2 = find_stage(v, false);
                 if(stage2 == stage1){
                     contain = true;
                 }
@@ -1180,7 +1175,7 @@ namespace nlsat {
             return contain;
         }
 
-        bool same_stage_literal(literal l, stage x) const {
+        bool same_stage_literal(literal l, stage_var x) const {
             return same_stage_bool(l.var(), x);
         }
 
@@ -1377,7 +1372,7 @@ namespace nlsat {
             return is_bool ? m_bool_assigned_index[v] : m_arith_assigned_index[v];
         }
 
-        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const {
+        hybrid_var max_assigned_var(unsigned sz, literal const * ls, bool & is_bool, stage_var & max_stage) const {
             hybrid_var res = null_var;
             var_table curr_vars;
             bool_var_table curr_bools;
@@ -1410,6 +1405,7 @@ namespace nlsat {
                     }
                 }
             }
+            max_stage = find_stage(res, is_bool);
             return res;
         }
         
@@ -1580,7 +1576,7 @@ namespace nlsat {
         return m_imp->assigned_bool_size();
     }
 
-    var Dynamic_manager::get_stage_var(stage x) const {
+    var Dynamic_manager::get_stage_var(stage_var x) const {
         return m_imp->get_stage_var(x);
     }
 
@@ -1668,11 +1664,11 @@ namespace nlsat {
         return m_imp->all_assigned_bool_arith(b);
     }
 
-    bool Dynamic_manager::same_stage_bool(bool_var b, stage x) const {
+    bool Dynamic_manager::same_stage_bool(bool_var b, stage_var x) const {
         return m_imp->same_stage_bool(b, x);
     }
 
-    bool Dynamic_manager::same_stage_literal(literal l, stage x) const {
+    bool Dynamic_manager::same_stage_literal(literal l, stage_var x) const {
         return m_imp->same_stage_literal(l, x);
     }
 
@@ -1720,7 +1716,7 @@ namespace nlsat {
         return m_imp->display_var_stage(out);
     }
 
-    hybrid_var Dynamic_manager::max_assigned_var(unsigned sz, literal const * ls, bool & is_bool) const {
-        return m_imp->max_assigned_var(sz, ls, is_bool);
+    hybrid_var Dynamic_manager::max_assigned_var(unsigned sz, literal const * ls, bool & is_bool, stage_var & res_stage) const {
+        return m_imp->max_assigned_var(sz, ls, is_bool, res_stage);
     }
 };

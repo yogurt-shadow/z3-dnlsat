@@ -1007,6 +1007,12 @@ namespace nlsat {
                 m_xk = null_var;
                 m_bk = null_var;
             }
+            // empty bool
+            else if(m_dm.assigned_bool_size() == 0){
+                m_bk = null_var;
+                m_search_mode = ARITH;
+            }
+            // find last status
             else {
                 hybrid_var v2 = m_dm.get_last_assigned_hybrid_var(is_bool);
                 // last is bool var
@@ -1054,6 +1060,10 @@ namespace nlsat {
                 m_search_mode = INIT;
                 m_xk = null_var;
                 m_bk = null_var;
+            }
+            else if(m_dm.assigned_arith_size() == 0){
+                m_xk = null_var;
+                m_search_mode = BOOL;
             }
             else {
                 hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
@@ -1140,7 +1150,7 @@ namespace nlsat {
         };
 
         // Keep undoing until stage is new_xk
-        void undo_until_stage(var new_xk) {
+        void undo_until_stage(stage_var new_xk) {
             // wzh dynamic
             var stage_var = (new_xk == null_var) ? null_var : m_dm.get_stage_var(new_xk);
             DTRACE(tout << "stage var: " << stage_var << std::endl;);
@@ -1469,9 +1479,24 @@ namespace nlsat {
             return false;
         }
 
+        inline bool lbool2bool(lbool r) const {
+            if(r == l_true){
+                return true;
+            }
+            else if(r == l_false){
+                return false;
+            }
+            else {
+                UNREACHABLE();
+            }
+        }
+
         bool is_literal_sat(literal l) {
             if(m_atoms[l.var()] == nullptr){
-                return m_bvalues[l.var()] != l.sign();
+                if(m_bvalues[l.var()] == l_undef){
+                    UNREACHABLE();
+                }
+                return lbool2bool(m_bvalues[l.var()]) != l.sign();
             }
             else {
                 return m_evaluator.eval(m_atoms[l.var()], l.sign());
@@ -1487,7 +1512,9 @@ namespace nlsat {
                 SASSERT(check_satisfied(m_clauses));
                 // we check satisfied for all sat results
                 // NOTE: we do not put this statement into TRACE
+                DTRACE(std::cout << "enable check satisfied\n";);
                 check_dynamic_satisfied();
+                DTRACE(std::cout << "check satisfied finished\n";);
                 return true;
             }
             return false;
@@ -1573,7 +1600,6 @@ namespace nlsat {
         bool process_hybrid_clause_arith(clause const & cls, bool satisfy_learned){
             if (!satisfy_learned && m_lazy >= 2 && cls.is_learned()) {
                 TRACE("nlsat", tout << "skip learned\n";);
-                DTRACE(tout << "here0\n";);
                 return true; // ignore lemmas in super lazy mode
             }
             unsigned num_undef = 0;
@@ -1683,9 +1709,7 @@ namespace nlsat {
                     // exactly one is null_var
                     clause_vector clauses;
                     // find clauses unit to this hybrid var
-                    DTRACE(tout << "here0\n";);
                     m_dm.find_next_process_clauses(m_xk, m_bk, clauses, m_search_mode);
-                    DTRACE(tout << "here\n";);
                     // TODO: shall we sort clauses here?
                     if(m_search_mode == ARITH){
                         DTRACE(tout << "sort clauses for arith mode\n";);
@@ -2438,19 +2462,38 @@ namespace nlsat {
                 // previous: Remark: the lemma may contain only boolean literals, in this case new_max_var == null_var;
                 // current: for boolean literals, new_max_var is the max_stage of boolean literals, since we may peek bool var after arith var
                 bool is_bool;
-                hybrid_var new_max_hybrid_var = m_dm.max_assigned_var(sz, m_lemma.data(), is_bool);
-                DTRACE(tout << "backtracking to unassigned: " << new_max_hybrid_var << ", curr: " << m_curr_stage << "\n";);
-                DTRACE(tout << "before undo until unassigned" << std::endl;
-                    display_trails(tout);
-                    m_dm.display_assigned_vars(tout);
-                    tout << "undo until unassigned " << new_max_hybrid_var << std::endl;
-                );
-                undo_until_unassigned(new_max_hybrid_var, is_bool);
-                DTRACE(tout << "after undo until unassigned " << new_max_hybrid_var << std::endl;
-                    display_trails(tout);
-                    m_dm.display_assigned_vars(tout);
-                    tout << "search mode: " << mode2str(m_search_mode) << std::endl;
-                );
+                stage_var max_stage;
+                hybrid_var new_max_hybrid_var = m_dm.max_assigned_var(sz, m_lemma.data(), is_bool, max_stage);
+                // case 1.1
+                // max var is bool var, we backtrack to max stage
+                if(is_bool){
+                    DTRACE(tout << "[CASE 1.1] max var is bool var " << new_max_hybrid_var << std::endl;
+                        tout << "undo until stage " << max_stage << ", curr: " << m_curr_stage << std::endl;
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                    );
+                    undo_until_stage(max_stage);
+                    DTRACE(tout << "after undo until stage " << max_stage << std::endl;
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                        tout << "search mode: " << mode2str(m_search_mode) << std::endl;
+                    );
+                }
+                // case 1.2
+                // max var is arith var, we backtrack until the max arith var is unassigned
+                else {
+                    DTRACE(tout << "[CASE 1.2] max var is arith var " << new_max_hybrid_var << std::endl;);
+                    DTRACE(tout << "backtrack to arith var unassigned " << new_max_hybrid_var << std::endl;
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                    );
+                    undo_until_unassigned(new_max_hybrid_var, false);
+                    DTRACE(tout << "after backtrack to arith var unassigned " << new_max_hybrid_var << std::endl;
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                        tout << "search mode: " << mode2str(m_search_mode) << std::endl;
+                    );
+                }
                 // SASSERT(m_xk == new_max_stage);
                 new_cls = mk_clause(sz, m_lemma.data(), true, m_lemma_assumptions.get());
             }
@@ -4011,6 +4054,10 @@ namespace nlsat {
                 out << "-----------------bool first mode-----------------\n";
             #elif DYNAMIC_MODE == THEORY_FIRST_MODE
                 out << "-----------------theory first mode-----------------\n";
+            #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
+                out << "-----------------origin static bool first mode-----------------\n";
+            #else
+                UNREACHABLE();
             #endif
 
             return out;
