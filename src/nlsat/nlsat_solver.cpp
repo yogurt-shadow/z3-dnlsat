@@ -972,7 +972,7 @@ namespace nlsat {
         }
      
         void undo_bvar_assignment(bool_var b) {
-            DTRACE(tout << "undo bvar assignment\n";);
+            DTRACE(tout << "undo bvar assignment " << b << std::endl;);
             m_bvalues[b] = l_undef;
             m_levels[b]  = UINT_MAX;
             del_jst(m_allocator, m_justifications[b]);
@@ -987,13 +987,13 @@ namespace nlsat {
         }
 
         void undo_arith_var_assignment(var x){
-            DTRACE(tout << "undo arith var assignment\n";);
+            DTRACE(tout << "undo arith var assignment for var " << x << std::endl;);
             m_assignment.reset(x);
             m_dm.undo_watched_clauses(x, false);
         }
 
         void undo_pick_bool(bool_var b){
-            DTRACE(tout << "undo pick bool var\n";);
+            DTRACE(tout << "undo pick bool var b" << b << std::endl;);
             bool is_bool;
             hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
             SASSERT(is_bool && v == b);
@@ -1390,7 +1390,7 @@ namespace nlsat {
             else {
                 // end of arith assignment
                 if(m_dm.assigned_arith_size() == num_vars()){
-                    DTRACE(tout << "end of arith assignment, new stage and push null_var\n";);
+                    DTRACE(tout << "end of arith assignment, new stage and push num of arith vars\n";);
                     // set m_xk with num of arith vars
                     m_xk = num_vars();
                     m_dm.push_assigned_var(m_xk, false);
@@ -1670,7 +1670,9 @@ namespace nlsat {
                 // select next hybrid var to process
                 // mode: BOOL or ARITH
                 select_next_hybrid_var();
-                DTRACE(tout << "xk: x" << m_xk << " bk: b" << m_bk << "\n";);
+                DTRACE(tout << "xk: x" << m_xk << " bk: b" << m_bk << "\n";
+                    tout << "mode: " << mode2str(m_search_mode) << std::endl;
+                );
                 if (is_satisfied()) {
                     return l_true;
                 }
@@ -1681,7 +1683,9 @@ namespace nlsat {
                     // exactly one is null_var
                     clause_vector clauses;
                     // find clauses unit to this hybrid var
+                    DTRACE(tout << "here0\n";);
                     m_dm.find_next_process_clauses(m_xk, m_bk, clauses, m_search_mode);
+                    DTRACE(tout << "here\n";);
                     // TODO: shall we sort clauses here?
                     if(m_search_mode == ARITH){
                         DTRACE(tout << "sort clauses for arith mode\n";);
@@ -1829,6 +1833,7 @@ namespace nlsat {
             init_pure_bool();
             m_dm.set_var_num(num_vars());
             init_search();
+            DTRACE(display_clauses(tout););
             m_explain.set_full_dimensional(is_full_dimensional());
             bool reordered = false;
             m_dm.init_learnt_management();
@@ -4062,6 +4067,14 @@ namespace nlsat {
         std::ostream & display_clause_vector(std::ostream & out, clause_vector const & vec) const {
             for(unsigned i = 0; i < vec.size(); i++){
                 display(out, *vec[i]); out << std::endl;
+            }
+            return out;
+        }
+
+        std::ostream & display_clauses(std::ostream & out) const {
+            out << "display clauses\n";
+            for(unsigned i = 0; i < m_clauses.size(); i++){
+                display(out, *m_clauses[i]); out << std::endl;
             }
             return out;
         }

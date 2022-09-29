@@ -97,19 +97,34 @@ namespace nlsat {
             bool operator()(hybrid_var v1, hybrid_var v2) const {
                 // two bool vars
                 if(v1 < m_num_bool && v2 < m_num_bool){
-                    // return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
-                    return v1 < v2;
+                    return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
                 }
                 // two arith vars
                 else if(v1 >= m_num_bool && v2 >= m_num_bool){
-                    // return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
-                    return v1 < v2;
+                    return m_activity[v1] == m_activity[v2] ? v1 < v2 : m_activity[v1] > m_activity[v2];
                 }
                 else {
                     SASSERT((v1 < m_num_bool) != (v2 < m_num_bool));
                     // if v1 is bool var, return true
                     // else return false
                     return v1 < m_num_bool;
+                }
+            }
+        };
+
+        // static bool first order
+        struct static_bool_first_order {
+            const unsigned & m_num_bool;
+            static_bool_first_order(unsigned const & num_bool): m_num_bool(num_bool) {}
+            bool operator()(hybrid_var v1, hybrid_var v2) const {
+                if(v1 < m_num_bool && v2 >= m_num_bool){
+                    return true;
+                }
+                else if(v1 >= m_num_bool && v2 < m_num_bool){
+                    return false;
+                }
+                else {
+                    return v1 < v2;
                 }
             }
         };
@@ -143,6 +158,8 @@ namespace nlsat {
             heap<bool_first_order> m_hybrid_heap;
         #elif DYNAMIC_MODE == THEORY_FIRST_MODE
             heap<theory_first_order> m_hybrid_heap;
+        #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
+            heap<static_bool_first_order> m_hybrid_heap;            
         #endif
 
         /**
@@ -193,6 +210,8 @@ namespace nlsat {
             m_hybrid_heap(200, bool_first_order(m_hybrid_activity, m_num_bool))
         #elif DYNAMIC_MODE == THEORY_FIRST_MODE
             m_hybrid_heap(200, theory_first_order(m_hybrid_activity, m_num_bool))
+        #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
+            m_hybrid_heap(200, static_bool_first_order(m_num_bool))
         #endif
         
         {}
@@ -235,21 +254,32 @@ namespace nlsat {
         // set hybrid var watch for each clause
         void set_watch(){
             DTRACE(tout << "start of set watch\n";);
+            m_hybrid_var_watched_clauses.reset();
+            m_hybrid_var_unit_clauses.reset();
+            m_hybrid_var_assigned_clauses.reset();
+
+            m_hybrid_var_watched_clauses.resize(m_num_hybrid, var_vector());
+            m_hybrid_var_unit_clauses.resize(m_num_hybrid, var_vector());
+            m_hybrid_var_assigned_clauses.resize(m_num_hybrid, var_vector());
+
             for(clause_index i = 0; i < m_num_clauses; i++){
                 dynamic_clause * cls = m_dynamic_clauses[i];
                 // no bool var and no arith var
                 if(cls->m_vars.empty() && cls->m_bool_vars.empty()){
+                    DTRACE(tout << "empty clause\n";);
                     cls->set_watched_var(null_var, null_var);
                 }
                 // one hybrid var, unit and no watch
                 else if(cls->m_vars.size() + cls->m_bool_vars.size() == 1){
                     if(cls->m_vars.empty()){
+                        DTRACE(tout << "bool unit clause\n";);
                         SASSERT(cls->m_bool_vars.size() == 1);
                         hybrid_var x = *(cls->m_bool_vars.begin());
                         m_hybrid_var_unit_clauses[x].push_back(i);
                         cls->set_watched_var(null_var, null_var);
                     }
                     else if(cls->m_bool_vars.empty()) {
+                        DTRACE(tout << "arith unit clause\n";);
                         SASSERT(cls->m_vars.size() == 1);
                         hybrid_var x = *(cls->m_vars.begin()) + m_num_bool;
                         m_hybrid_var_unit_clauses[x].push_back(i);
@@ -297,6 +327,7 @@ namespace nlsat {
                 }
             }
             DTRACE(tout << "after set watch, display watch clauses\n";
+                display_var_watched_clauses(tout);
                 display_clauses_watch(tout);
                 display_unit_clauses(tout);
                 display_assigned_clauses(tout);
@@ -687,6 +718,13 @@ namespace nlsat {
                     SASSERT(m_arith_in_stack >= 1);
                     m_arith_in_stack--;
                 }
+                // end of arith assignment
+                else if(v == m_num_hybrid){
+                    SASSERT(m_stage >= 1);
+                    m_stage--;
+                    SASSERT(m_arith_in_stack >= 1);
+                    m_arith_in_stack--;
+                }
                 else {
                     SASSERT(!m_hybrid_heap.contains(v));
                     if(!m_hybrid_heap.contains(v)){
@@ -734,11 +772,19 @@ namespace nlsat {
                 m_bool_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
             }
             else {
-                m_assigned_hybrid_vars.push_back(x + m_num_bool);
-                m_arith_in_stack++;
-                m_stage++;
-                m_find_stage[x] = m_stage;
-                m_arith_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
+                // the end of arith var
+                if(x == m_num_vars){
+                    m_assigned_hybrid_vars.push_back(x + m_num_bool);
+                    m_arith_in_stack++;
+                    m_stage++;
+                }
+                else {
+                    m_assigned_hybrid_vars.push_back(x + m_num_bool);
+                    m_arith_in_stack++;
+                    m_stage++;
+                    m_find_stage[x] = m_stage;
+                    m_arith_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
+                }
             }
             // DTRACE(display_arith_stage(tout);
             //     display_bool_stage(tout);
@@ -778,10 +824,14 @@ namespace nlsat {
             else {
                 UNREACHABLE();
             }
+            DTRACE(tout << "size: " << m_hybrid_var_unit_clauses.size() << std::endl;);
+            DTRACE(tout << "clause size: " << m_clauses.size() << std::endl;);
             // clause
             for(auto ele: m_hybrid_var_unit_clauses[v]){
+                DTRACE(tout << "loop: " << ele << std::endl;);
                 res.push_back(m_clauses[ele]);
             }
+            DTRACE(tout << "here1\n";);
             // learned
             for(unsigned i = 0; i < m_learned.size(); i++){
                 clause * cls = m_learned[i];
@@ -789,6 +839,7 @@ namespace nlsat {
                     res.push_back(cls);
                 }
             }
+            DTRACE(tout << "here2\n";);
         }
 
         // only left this hybrid var unassigned
@@ -930,7 +981,6 @@ namespace nlsat {
         // is_bool: bool var or not
         // for bool var: x is index of m_atoms
         void do_watched_clauses(hybrid_var x, bool is_bool){
-            DTRACE(tout << "do watched clauses for hybrid var " << x << std::endl;);
             unsigned j = 0;
             // bool var
             if(is_bool){
@@ -940,8 +990,15 @@ namespace nlsat {
             else {
                 x = x + m_num_bool;
             }
+            DTRACE(tout << "do watched clauses for hybrid var " << x << std::endl;
+                display_var_watched_clauses(tout);
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
             // watched clauses ==> unit clauses
-            for(clause_index idx: m_hybrid_var_watched_clauses[x]){
+            for(unsigned id = 0; id < m_hybrid_var_watched_clauses[x].size(); id++){
+                clause_index idx = m_hybrid_var_watched_clauses[x][id];
                 // ignore unit var clauses
                 if(unit_clause_contains(idx)){
                     m_hybrid_var_watched_clauses[x][j++] = idx;
@@ -969,11 +1026,12 @@ namespace nlsat {
                 m_hybrid_var_assigned_clauses[x].push_back(ele);
             }
             m_hybrid_var_unit_clauses[x].reset();
-            // DTRACE(tout << "after do watch clauses, display watch clauses\n";
-            //     display_clauses_watch(tout);
-            //     display_unit_clauses(tout);
-            //     display_assigned_clauses(tout);
-            // );
+            DTRACE(tout << "after do watch clauses, display watch clauses\n";
+                display_var_watched_clauses(tout);
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
         }
 
         bool unit_clause_contains(clause_index idx) const {
@@ -1043,15 +1101,15 @@ namespace nlsat {
         // is_bool: bool var or not
         // for bool var: x is index of m_atoms
         void undo_watched_clauses(hybrid_var x, bool is_bool){
-            DTRACE(tout << "undo watched clauses for hybrid var " << x << std::endl;
-                tout << "is bool: " << bool2str(is_bool) << std::endl;
-            );
             if(is_bool){
                 x = m_pure_bool_convert[x];
             }
             else {
                 x = x + m_num_bool;
             }
+            DTRACE(tout << "undo watched clauses for hybrid var " << x << std::endl;
+                tout << "is bool: " << bool2str(is_bool) << std::endl;
+            );
             // delete unit clauses
             unsigned j = 0;
             for(hybrid_var v = 0; v < m_hybrid_var_unit_clauses.size(); v++){
@@ -1071,11 +1129,11 @@ namespace nlsat {
                 m_hybrid_var_unit_clauses[x].push_back(ele);
             }
             m_hybrid_var_assigned_clauses[x].reset();
-            // DTRACE(tout << "after undo watch clauses, display watch clauses\n";
-            //     display_clauses_watch(tout);
-            //     display_unit_clauses(tout);
-            //     display_assigned_clauses(tout);
-            // );
+            DTRACE(tout << "after undo watch clauses, display watch clauses\n";
+                display_clauses_watch(tout);
+                display_unit_clauses(tout);
+                display_assigned_clauses(tout);
+            );
         }
 
         void reset_conflict_vars(){
@@ -1368,13 +1426,28 @@ namespace nlsat {
             return out;
         }
 
+        std::ostream & display_var_watched_clauses(std::ostream & out) const {
+            out << "display var watched clauses\n";
+            for(hybrid_var v = 0; v < m_hybrid_var_watched_clauses.size(); v++){
+                out << "var " << v << " watched clauses:\n";
+                display_clause_vector(out, m_hybrid_var_watched_clauses[v]);
+            }
+            return out;
+        }
+
         std::ostream & split_line(std::ostream & out) const {
             out << "-----------------------------------------\n";
             return out;
         }
 
         std::ostream & display_clause_vector(std::ostream & out, var_vector const & vec) const {
+            if(vec.empty()){
+                out << "[EMPTY]\n";
+                return out;
+            }
+            unsigned index = 0;
             for(auto ele: vec){
+                out << index++ << ":  ";
                 m_solver.display(out, *m_clauses[ele]) << std::endl;
             }
             return out;

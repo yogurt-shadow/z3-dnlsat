@@ -20,11 +20,14 @@ namespace nlsat {
     #define BOOL_FIRST_MODE 2
     // theory_first - 3
     #define THEORY_FIRST_MODE 3
+    // static bool first - 4
+    #define ORIGIN_STATIC_BOOL_FIRST_MODE 4
 
     // define search mode
-    #define DYNAMIC_MODE BOOL_FIRST_MODE
-    // #define DYNAMIC_MODE THEORY_FIRST_MODE
+    // #define DYNAMIC_MODE BOOL_FIRST_MODE
+    #define DYNAMIC_MODE THEORY_FIRST_MODE
     // #define DYNAMIC_MODE UNIFORM_MODE
+    // #define DYNAMIC_MODE ORIGIN_STATIC_BOOL_FIRST_MODE
 
 
     enum search_mode {
