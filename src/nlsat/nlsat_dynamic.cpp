@@ -723,8 +723,8 @@ namespace nlsat {
                     SASSERT(m_arith_in_stack >= 1);
                     m_arith_in_stack--;
                 }
-                // end of arith assignment
-                else if(v == m_num_hybrid){
+                // switch stage
+                else if(v >= m_num_hybrid){
                     SASSERT(m_stage >= 1);
                     m_stage--;
                     SASSERT(m_arith_in_stack >= 1);
@@ -777,8 +777,8 @@ namespace nlsat {
                 m_bool_assigned_index[x] = m_assigned_hybrid_vars.size() - 1;
             }
             else {
-                // the end of arith var
-                if(x == m_num_vars){
+                // switch stage var
+                if(x >= m_num_vars){
                     m_assigned_hybrid_vars.push_back(x + m_num_bool);
                     m_arith_in_stack++;
                     m_stage++;
@@ -1421,6 +1421,10 @@ namespace nlsat {
             max_stage = find_stage(res, is_bool);
             return res;
         }
+
+        bool finish_status() const {
+            return m_hybrid_heap.empty();
+        }
         
         /**
          * Display
@@ -1743,5 +1747,9 @@ namespace nlsat {
 
     hybrid_var Dynamic_manager::max_assigned_var(unsigned sz, literal const * ls, bool & is_bool, stage_var & res_stage) const {
         return m_imp->max_assigned_var(sz, ls, is_bool, res_stage);
+    }
+
+    bool Dynamic_manager::finish_status() const {
+        return m_imp->finish_status();
     }
 };

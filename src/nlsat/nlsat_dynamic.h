@@ -200,6 +200,7 @@ namespace nlsat {
 
         var all_assigned_or_left_literal(bool_var b) const;
         void erase_from_heap(hybrid_var v, bool is_bool);
+        bool finish_status() const;
 
         std::ostream & display_assigned_vars(std::ostream & out) const;
         std::ostream & display_var_stage(std::ostream &) const;

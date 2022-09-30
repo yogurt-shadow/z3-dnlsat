@@ -23,7 +23,7 @@ Revision History:
  * ---------------------------------------------------------------------------------------------------------------
  * @name HDnlsat: Hybrid Dynamic Nonlinear Arithmetic Satisfiability Procedure
  * @date start time: 22/09/23
- * @author Zhonghan wang (wzh)
+ * @author Zhonghan Wang (wzh)
  * @brief This version supports arbitrary order of hybrid boolean var and arith var
  * 
  * @note Implementation Note
@@ -282,6 +282,7 @@ namespace nlsat {
         unsigned               m_max_conflicts;
         unsigned               m_lemma_count;
         unsigned               m_curr_stage;
+        unsigned               m_switch_cnt;
 
         // statistics
         unsigned               m_conflicts;
@@ -1181,12 +1182,11 @@ namespace nlsat {
         };
 
         // Keep undoing until stage is new_xk
-        void undo_until_stage(stage_var new_xk) {
-            // wzh dynamic
-            var stage_var = (new_xk == null_var) ? null_var : m_dm.get_stage_var(new_xk);
-            DTRACE(tout << "stage var: " << stage_var << std::endl;);
-            undo_until(stage_pred(m_xk, stage_var));
-            // hzw dynamic
+        void undo_until_stage(stage_var new_stage) {
+            if(new_stage == null_var){
+                new_stage = 0;
+            }
+            undo_until(stage_pred(m_curr_stage, new_stage));
         }
 
         struct level_pred {
@@ -1419,10 +1419,10 @@ namespace nlsat {
 
         // m_bk: atom index
         void select_next_hybrid_var(){
-            // we have finish search
             DTRACE(tout << "start of select next hybrid var\n";);
-            // we compare assigned size with hybrid_vars + 1, since we push null_var at the end of arith assignment
-            if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
+            // we have finish search
+            // if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
+            if(m_dm.finish_status()){
                 DTRACE(tout << "process finished\n";);
                 m_xk = null_var;
                 m_bk = null_var;
@@ -1430,28 +1430,39 @@ namespace nlsat {
             }
             else {
                 // end of arith assignment
-                if(m_dm.assigned_arith_size() == num_vars()){
-                    DTRACE(tout << "end of arith assignment, new stage and push num of arith vars\n";);
-                    // set m_xk with num of arith vars
-                    m_xk = num_vars();
-                    m_dm.push_assigned_var(m_xk, false);
-                    save_new_stage_trail(m_xk);
-                    m_stages++;
-                    m_curr_stage++;
-                    // finish search
-                    // end of arith process is exactly end of whole process
-                    if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
-                         DTRACE(tout << "process finished\n";);
-                        m_xk = null_var;
-                        m_bk = null_var;
-                        m_search_mode = FINISH;
-                        return;
-                    }
-                }
+                // if(m_dm.assigned_arith_size() == num_vars()){
+                //     DTRACE(tout << "end of arith assignment, new stage and push num of arith vars\n";);
+                //     // set m_xk with num of arith vars
+                //     m_xk = num_vars();
+                //     m_dm.push_assigned_var(m_xk, false);
+                //     save_new_stage_trail(m_xk);
+                //     m_stages++;
+                //     m_curr_stage++;
+                //     // finish search
+                //     // end of arith process is exactly end of whole process
+                //     if(m_dm.finish_status()){
+                //          DTRACE(tout << "process finished\n";);
+                //         m_xk = null_var;
+                //         m_bk = null_var;
+                //         m_search_mode = FINISH;
+                //         return;
+                //     }
+                // }
+
                 bool is_bool;
                 hybrid_var v = m_dm.vsids_select(is_bool);
                 // for bool var: return atom index
                 if(is_bool){
+                    // arith --switch--> mode
+                    // save stage when switching mode from bool to arith
+                    if(m_search_mode == ARITH){
+                        m_xk = num_vars() + m_switch_cnt;
+                        m_switch_cnt++;
+                        m_dm.push_assigned_var(m_xk, false);
+                        save_new_stage_trail(m_xk);
+                        m_stages++;
+                        m_curr_stage++;
+                    }
                     m_bk = v;
                     m_dm.push_assigned_var(m_pure_bool_convert[v], true);
                     m_search_mode = BOOL;
@@ -1471,7 +1482,9 @@ namespace nlsat {
                     DTRACE(tout << "[select] pick arith var: " << v << std::endl;);
                 }
             }
-            DTRACE(m_dm.display_assigned_vars(tout););
+            DTRACE(m_dm.display_assigned_vars(tout);
+                tout << "search mode: " << mode2str(m_search_mode) << std::endl;
+            );
         }
 
         /**
@@ -1918,6 +1931,7 @@ namespace nlsat {
             m_dm.init_search();
             m_search_mode = INIT;
             m_curr_stage = 0;
+            m_switch_cnt = 0;
         }
 
         void init_pure_bool(){
