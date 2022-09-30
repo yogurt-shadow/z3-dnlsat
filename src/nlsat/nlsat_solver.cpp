@@ -993,7 +993,9 @@ namespace nlsat {
         }
 
         void undo_pick_bool(bool_var b){
-            DTRACE(tout << "undo pick bool var b" << b << std::endl;);
+            DTRACE(tout << "undo pick bool var b" << b << std::endl;
+                m_dm.display_assigned_vars(tout);
+            );
             bool is_bool;
             hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
             SASSERT(is_bool && v == b);
@@ -1026,6 +1028,7 @@ namespace nlsat {
                     m_search_mode = ARITH;
                 }
             }
+            DTRACE(tout << "end of undo pick bool var b" << b << std::endl;);
         }
 
         void undo_set_updt(interval_set * old_set) {
@@ -1076,6 +1079,7 @@ namespace nlsat {
                     m_search_mode = ARITH;
                 }
             }
+            DTRACE(tout << "end of undo new stage\n";);
         }
 
         void undo_new_level() {
@@ -2407,6 +2411,10 @@ namespace nlsat {
                     tout << "current level: " << scope_lvl() << std::endl;
                 );
                 SASSERT(max_lvl < scope_lvl());
+                TRACE("wzh", tout << "[debug] before remove lemma:\n";
+                    display(tout, m_lemma);
+                    tout << std::endl;
+                );
                 remove_literals_from_lvl(m_lemma, max_lvl);
                 TRACE("wzh", tout << "[debug] after remove lemma:\n";
                     display(tout, m_lemma);
@@ -2461,6 +2469,7 @@ namespace nlsat {
                 // We just have to find the maximal variable in m_lemma, and return to that stage
                 // previous: Remark: the lemma may contain only boolean literals, in this case new_max_var == null_var;
                 // current: for boolean literals, new_max_var is the max_stage of boolean literals, since we may peek bool var after arith var
+                DTRACE(tout << "[CASE 1] not found decision\n";);
                 bool is_bool;
                 stage_var max_stage;
                 hybrid_var new_max_hybrid_var = m_dm.max_assigned_var(sz, m_lemma.data(), is_bool, max_stage);
@@ -2498,6 +2507,7 @@ namespace nlsat {
                 new_cls = mk_clause(sz, m_lemma.data(), true, m_lemma_assumptions.get());
             }
             else {
+                DTRACE(tout << "[CASE 2] found decision\n";);
                 SASSERT(scope_lvl() >= 1);
                 // Case 2)
                 if (is_bool_lemma(m_lemma.size(), m_lemma.data())) {
@@ -2511,8 +2521,15 @@ namespace nlsat {
                     // are at the same stage. If all these literals are from previous stages,
                     // we just backtrack the current level.
                     unsigned new_lvl = find_new_level_arith_lemma(m_lemma.size(), m_lemma.data());
-                    TRACE("nlsat", tout << "backtracking to new level: " << new_lvl << ", curr: " << m_scope_lvl << "\n";);
+                    TRACE("nlsat", tout << "before backtracking to new level: " << new_lvl << ", curr: " << m_scope_lvl << "\n";
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                    );
                     undo_until_level(new_lvl);
+                    DTRACE(tout << "after backtrack to level " << new_lvl << std::endl;
+                        display_trails(tout);
+                        m_dm.display_assigned_vars(tout);
+                    );
                 }
 
                 if (lemma_is_clause(*conflict_clause)) {
@@ -2536,10 +2553,12 @@ namespace nlsat {
             DTRACE(display(tout, *new_cls););
             DTRACE(tout << "before adjust, show assigned vars\n";
                 m_dm.display_assigned_vars(tout);
+                tout << "search mode: " << mode2str(m_search_mode) << std::endl;
             );
             adjust_process_hybrid_var(*new_cls);
             DTRACE(tout << "after adjust, show assigned vars\n";
                 m_dm.display_assigned_vars(tout);
+                tout << "search mode: " << mode2str(m_search_mode) << std::endl;
             );
             if (!process_hybrid_clause(*new_cls, true)) {
                 TRACE("nlsat", tout << "new clause triggered another conflict, restarting conflict resolution...\n";
@@ -2554,6 +2573,7 @@ namespace nlsat {
             return true;
         }
 
+        // TODO: recently pushed hybrid var may not be assigned
         void adjust_process_hybrid_var(clause const & cls) {
             DTRACE(m_assignment.display(tout););
             bool_var b = null_var;
@@ -2597,18 +2617,43 @@ namespace nlsat {
             }
             // bool not assigned
             else if(b != null_var){
+                DTRACE(tout << "[adjust] bool mode, m_bk: " << b <<  " -> " << m_pure_bool_convert[b] << std::endl;);
                 m_bk = b;
                 m_search_mode = BOOL;
                 // check whether last var is m_pure_bool_convert
-                if(!(is_bool && last_var == m_pure_bool_convert[b])){
+                if(is_bool && last_var == m_pure_bool_convert[b]){
+
+                }
+                else {
+                    // pop last new bool or new stage
+                    if(not_assigned_hybrid_var(last_var, is_bool)){
+                        m_dm.pop_last_var();
+                        m_trail.pop_back();
+                    }
+                    // choose adjusted bool var
+                    save_pick_bool_trail(m_pure_bool_convert[b]);
+                    m_dm.erase_from_heap(m_pure_bool_convert[b], true);
                     m_dm.push_assigned_var(m_pure_bool_convert[b], true);
                 }
             }
             // arith not assigned
             else if(v != null_var){
+                DTRACE(tout << "[adjust] arith mode, m_xk: " << v << std::endl;);
                 m_xk = v;
                 m_search_mode = ARITH;
-                if(!(!is_bool && last_var == v)){
+                // check whether last var is arith var
+                if(!is_bool && last_var == v){
+
+                }
+                else {
+                    // pop last new bool or new stage
+                    if(not_assigned_hybrid_var(last_var, is_bool)){
+                        m_dm.pop_last_var();
+                        m_trail.pop_back();
+                    }
+                    // choose adjusted arith var
+                    save_new_stage_trail();
+                    m_dm.erase_from_heap(v, false);
                     m_dm.push_assigned_var(v, false);
                 }
             }
@@ -2616,6 +2661,11 @@ namespace nlsat {
             else {
                 DTRACE(tout << "all assigned clause\n";);
             }
+        }
+
+        // bool index: pure bool index
+        bool not_assigned_hybrid_var(hybrid_var v, bool is_bool){
+            return is_bool ? m_bvalues[m_pure_bool_vars[v]] == l_undef : m_assignment.is_assigned(v);
         }
 
         bool lemma_is_clause(clause const& cls) const {
@@ -4066,10 +4116,15 @@ namespace nlsat {
         // Display Trail
         std::ostream & display_trails(std::ostream & out) const {
             out << "Display Trails\n";
+            unsigned stage_cnt = 0, level_cnt = 0;
             for(auto ele: m_trail){
                 switch(ele.m_kind){
                     case trail::BVAR_ASSIGNMENT:
-                        out << "[BVAR ASSIGNMENT]: "; display_atom(out, ele.m_b); out << std::endl;
+                        out << "[BVAR ASSIGNMENT]: "; display_atom(out, ele.m_b); 
+                        if(m_atoms[ele.m_b] == nullptr){
+                            out << " -> bool_var " << m_pure_bool_convert[ele.m_b];
+                        }
+                        out << std::endl;
                         break;
 
                     case trail::INFEASIBLE_UPDT:
@@ -4077,11 +4132,11 @@ namespace nlsat {
                         break;
 
                     case trail::NEW_LEVEL:
-                        out << "------------------------------[NEW LEVEL]------------------------------\n";
+                        out << "------------------------------[NEW LEVEL " << ++level_cnt << " ]------------------------------\n";
                         break;
                     
                     case trail::NEW_STAGE:
-                        out << "------------------------------[NEW STAGE]------------------------------\n";
+                        out << "------------------------------[NEW STAGE " << ++stage_cnt << " ]------------------------------\n";
                         break;
 
                     case trail::UPDT_EQ:
@@ -4089,7 +4144,7 @@ namespace nlsat {
                         break;
 
                     case trail::NEW_BOOL:
-                        out << "------------------------------[NEW BOOL]------------------------------ " << ele.m_b << std::endl;
+                        out << "------------------------------[NEW BOOL " << ele.m_b << " ]------------------------------ " << std::endl;
                         break;
 
                     case trail::ARITH_ASSIGNMENT:

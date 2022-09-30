@@ -1368,6 +1368,14 @@ namespace nlsat {
             return res;
         }
 
+        void erase_from_heap(hybrid_var v, bool is_bool){
+            if(!is_bool){
+                v = v + m_num_bool;
+            }
+            SASSERT(m_hybrid_heap.contains(v));
+            m_hybrid_heap.erase(v);
+        }
+
         var find_assigned_index(hybrid_var v, bool is_bool) const {
             return is_bool ? m_bool_assigned_index[v] : m_arith_assigned_index[v];
         }
@@ -1492,7 +1500,7 @@ namespace nlsat {
         }
 
         std::ostream & display_assigned_vars(std::ostream & out) const {
-            out << "display assigned vars\n";
+            out << "display assigned vars " << "(size: " << m_assigned_hybrid_vars.size() << ")\n";
             if(m_assigned_hybrid_vars.empty()){
                 out << "[EMPTY]\n";
             }
@@ -1710,6 +1718,10 @@ namespace nlsat {
 
     var Dynamic_manager::all_assigned_or_left_literal(bool_var b) const {
         return m_imp->all_assigned_or_left_literal(b);
+    }
+
+    void Dynamic_manager::erase_from_heap(hybrid_var v, bool is_bool) {
+        m_imp->erase_from_heap(v, is_bool);
     }
 
     std::ostream & Dynamic_manager::display_var_stage(std::ostream & out) const {
