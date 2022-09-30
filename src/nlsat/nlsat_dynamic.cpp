@@ -686,6 +686,11 @@ namespace nlsat {
             return null_var;
         }
 
+        bool last_assigned_bool() const {
+            SASSERT(!m_assigned_hybrid_vars.empty());
+            return is_bool_var(m_assigned_hybrid_vars.back());
+        }
+
         bool_var get_last_assigned_bool_var() const {
             for(int i = m_assigned_hybrid_vars.size() - 1; i >= 0; i--){
                 if(is_bool_var(m_assigned_hybrid_vars[i])){
@@ -1710,6 +1715,14 @@ namespace nlsat {
 
     var Dynamic_manager::get_last_assigned_arith_var() const {
         return m_imp->get_last_assigned_arith_var();
+    }
+
+    bool Dynamic_manager::last_assigned_bool() const {
+        return m_imp->last_assigned_bool();
+    }
+
+    bool_var Dynamic_manager::get_last_assigned_bool_var() const {
+        return m_imp->get_last_assigned_bool_var();
     }
 
     std::ostream & Dynamic_manager::display_assigned_vars(std::ostream & out) const {

@@ -18,6 +18,29 @@ Author:
 Revision History:
 
 --*/
+
+/**
+ * ---------------------------------------------------------------------------------------------------------------
+ * @name HDnlsat: Hybrid Dynamic Nonlinear Arithmetic Satisfiability Procedure
+ * @date start time: 22/09/23
+ * @author Zhonghan wang (wzh)
+ * @brief This version supports arbitrary order of hybrid boolean var and arith var
+ * 
+ * @note Implementation Note
+ * 1. Do not distinguish hybrid vars (bool var and arith var) when watching, doing or undoing clauses
+ * 2. Add new trail kind
+ *    2.1 Pick Bool Var: select a new bool var to process
+ *    2.2 Arith Assignment: select witness for arith var at the end of process clauses
+ * 3. Adjust search mode in resolve:
+ *    3.1 ALl assigned, search mode aribitrary, new clause triggered new conflict, continue resolution
+ *    3.2 Only left bool var, search mode bool
+ *    3.3 Only left arith var, search mode arith
+ *    3.4 left two unassigned vars, unreachable
+ * 4. New Stage at the end of arith assignment (m_xk = num_vars())
+ * 5. Shall we register new stage when switching mode ?
+ * ---------------------------------------------------------------------------------------------------------------
+ **/
+
 #include "util/z3_exception.h"
 #include "util/chashtable.h"
 #include "util/id_gen.h"
@@ -204,6 +227,11 @@ namespace nlsat {
 
         struct bvar_assignment {};
         struct stage {};
+        struct level {};
+
+        struct pick_bool {};
+        struct arith_assignment {};
+
         struct trail {
             enum kind { BVAR_ASSIGNMENT, INFEASIBLE_UPDT, NEW_LEVEL, NEW_STAGE, UPDT_EQ, ARITH_ASSIGNMENT, NEW_BOOL };
             kind   m_kind;
@@ -213,23 +241,28 @@ namespace nlsat {
                 interval_set * m_old_set;
                 atom         * m_old_eq;
             };
-            trail(bool_var b, bvar_assignment):m_kind(BVAR_ASSIGNMENT), m_b(b) {}
-            trail(interval_set * old_set):m_kind(INFEASIBLE_UPDT), m_old_set(old_set) {}
-            trail(bool s, stage):m_kind(s ? NEW_STAGE : NEW_LEVEL) {}
-            trail(atom * a):m_kind(UPDT_EQ), m_old_eq(a) {}
+            // trail(bool s, stage):m_kind(s ? NEW_STAGE : NEW_LEVEL) {}
 
-            // hybrid dynamic nlsat
-            trail(hybrid_var b, bool new_bool_or_arith_ass){
-                if(new_bool_or_arith_ass){
-                    m_b = b;
-                    m_kind = NEW_BOOL;
-                }
-                else {
-                    m_x = b;
-                    m_kind = ARITH_ASSIGNMENT;
-                }
-            }
-            // hybrid dynamic nlsat
+            // pick bool
+            trail(bool_var b, pick_bool): m_kind(NEW_BOOL), m_b(b) {}
+            
+            // bool var assignment
+            trail(bool_var b, bvar_assignment):m_kind(BVAR_ASSIGNMENT), m_b(b) {}
+
+            // new level
+            trail(bool_var b, level): m_kind(NEW_LEVEL), m_b(b) {}
+            
+            // new stage
+            trail(var x, stage): m_kind(NEW_STAGE), m_x(x) {}
+
+            // arith assignment
+            trail(var x, arith_assignment): m_kind(ARITH_ASSIGNMENT), m_x(x) {}
+
+            // update infeasible set
+            trail(interval_set * old_set):m_kind(INFEASIBLE_UPDT), m_old_set(old_set) {}
+
+            // update equation
+            trail(atom * a):m_kind(UPDT_EQ), m_old_eq(a) {}
         };
         svector<trail>         m_trail;
 
@@ -940,7 +973,7 @@ namespace nlsat {
         //
         // -----------------------
 
-        void save_assign_trail(bool_var b) {
+        void save_bool_assign_trail(bool_var b) {
             m_trail.push_back(trail(b, bvar_assignment()));
         }
 
@@ -952,23 +985,23 @@ namespace nlsat {
             m_trail.push_back(trail(old_eq));
         }
 
-        void save_new_stage_trail() {
-            m_trail.push_back(trail(true, stage()));
+        void save_new_stage_trail(var x) {
+            m_trail.push_back(trail(x, stage()));
         }
 
         // used for arith var assignment
         void save_arith_var_assignment_trail(var v){
-            m_trail.push_back(trail(v, false));
+            m_trail.push_back(trail(v, arith_assignment()));
         }
 
         // used for new bool
         // bool_var: pure bool index
         void save_pick_bool_trail(bool_var b){
-            m_trail.push_back(trail(b, true));
+            m_trail.push_back(trail(b, pick_bool()));
         }
 
-        void save_new_level_trail() {
-            m_trail.push_back(trail(false, stage()));
+        void save_new_level_trail(bool_var b) {
+            m_trail.push_back(trail(b, level()));
         }
      
         void undo_bvar_assignment(bool_var b) {
@@ -1003,30 +1036,23 @@ namespace nlsat {
                 UNREACHABLE();
             }
             m_dm.pop_last_var();
-            // empty stack
+            // empty stack, backtrack to init status
             if(m_dm.assigned_size() == 0){
                 m_search_mode = INIT;
                 m_xk = null_var;
                 m_bk = null_var;
             }
-            // empty bool
+            // empty bool, backtrack to arith mode
             else if(m_dm.assigned_bool_size() == 0){
                 m_bk = null_var;
                 m_search_mode = ARITH;
             }
             // find last status
             else {
-                hybrid_var v2 = m_dm.get_last_assigned_hybrid_var(is_bool);
-                // last is bool var
-                if(is_bool){
-                    m_bk = m_pure_bool_vars[v2];
-                    m_search_mode = BOOL;
-                }
-                // last is arith var
-                else {
-                    m_xk = v2;
-                    m_search_mode = ARITH;
-                }
+                bool_var last_bool = m_dm.get_last_assigned_bool_var();
+                SASSERT(last_bool != null_var);
+                m_bk = m_pure_bool_vars[last_bool];
+                m_search_mode = m_dm.last_assigned_bool() ? BOOL : ARITH;
             }
             DTRACE(tout << "end of undo pick bool var b" << b << std::endl;);
         }
@@ -1046,40 +1072,41 @@ namespace nlsat {
         }
 
         // new stage <--> pick new arith var
-        void undo_new_stage() {
-            DTRACE(tout << "undo new stage\n";
+        void undo_new_stage(var v) {
+            DTRACE(tout << "undo new stage for var " << v << std::endl;
+                tout << "m_xk: " << m_xk << std::endl;
                 m_dm.display_assigned_vars(tout);
             );
             bool is_bool;
             hybrid_var x = m_dm.get_last_assigned_hybrid_var(is_bool);
-            SASSERT(!is_bool);
-            if(is_bool){
+            SASSERT(!is_bool && v == x);
+            if(is_bool || v != x){
                 UNREACHABLE();
             }
             m_dm.pop_last_var();
             SASSERT(m_curr_stage >= 1);
             m_curr_stage--;
+            // empty stack, back to init status
             if(m_dm.assigned_size() == 0){
                 m_search_mode = INIT;
                 m_xk = null_var;
                 m_bk = null_var;
             }
+            // arith in stack == 0, back to bool search
             else if(m_dm.assigned_arith_size() == 0){
+                SASSERT(m_dm.assigned_bool_size() > 0);
                 m_xk = null_var;
                 m_search_mode = BOOL;
             }
+            // backtrack arith counter m_xk
             else {
-                hybrid_var v = m_dm.get_last_assigned_hybrid_var(is_bool);
-                if(is_bool){
-                    m_bk = m_pure_bool_vars[v];
-                    m_search_mode = BOOL;
-                }
-                else {
-                    m_xk = v;
-                    m_search_mode = ARITH;
-                }
+                m_xk = m_dm.get_last_assigned_arith_var();
+                SASSERT(m_xk != null_var);
+                m_search_mode = m_dm.last_assigned_bool() ? BOOL : ARITH;
             }
-            DTRACE(tout << "end of undo new stage\n";);
+            DTRACE(tout << "end of undo new stage\n";
+                tout << "m_xk: " << m_xk << std::endl;
+            );
         }
 
         void undo_new_level() {
@@ -1107,7 +1134,7 @@ namespace nlsat {
                     undo_set_updt(t.m_old_set);
                     break;
                 case trail::NEW_STAGE:
-                    undo_new_stage();
+                    undo_new_stage(t.m_x);
                     break;
                 case trail::NEW_LEVEL:
                     undo_new_level();
@@ -1226,10 +1253,10 @@ namespace nlsat {
         /**
            \brief Create a new scope level
         */
-        void new_level() {
+        void new_level(bool_var b) {
             m_evaluator.push();
             m_scope_lvl++;
-            save_new_level_trail();
+            save_new_level_trail(b);
         }
 
         /**
@@ -1266,7 +1293,7 @@ namespace nlsat {
             m_bvalues[b] = to_lbool(!l.sign());
             m_levels[b]  = m_scope_lvl;
             m_justifications[b] = j;
-            save_assign_trail(b);
+            save_bool_assign_trail(b);
             updt_eq(b, j);
             // if literal is pure bool, do watched clause for this bool var
             if(m_atoms[b] == nullptr){
@@ -1279,7 +1306,7 @@ namespace nlsat {
            \brief Create a "case-split"
         */
         void decide(literal l) {
-            new_level();
+            new_level(l.var());
             assign(l, decided_justification);
         }
 
@@ -1408,7 +1435,7 @@ namespace nlsat {
                     // set m_xk with num of arith vars
                     m_xk = num_vars();
                     m_dm.push_assigned_var(m_xk, false);
-                    save_new_stage_trail();
+                    save_new_stage_trail(m_xk);
                     m_stages++;
                     m_curr_stage++;
                     // finish search
@@ -1440,7 +1467,7 @@ namespace nlsat {
                     m_search_mode = ARITH;
                     m_stages++;
                     m_curr_stage++;
-                    save_new_stage_trail();
+                    save_new_stage_trail(m_xk);
                     DTRACE(tout << "[select] pick arith var: " << v << std::endl;);
                 }
             }
@@ -2204,6 +2231,9 @@ namespace nlsat {
            \pre This method assumes value(ls[i]) is l_false for i in [0, num)
         */
         void remove_literals_from_lvl(scoped_literal_vector & lemma, unsigned lvl) {
+            DTRACE(display_trails(tout);
+                tout << "level: " << lvl << std::endl;
+            );
             unsigned sz = lemma.size();
             unsigned j  = 0;
             for (unsigned i = 0; i < sz; i++) {
@@ -2211,18 +2241,8 @@ namespace nlsat {
                 bool_var b = l.var();
                 SASSERT(is_marked(b));
                 SASSERT(value(lemma[i]) == l_false);
-                // if (assigned_value(l) == l_false && m_levels[b] == lvl && max_var(b) == m_xk) {
-                // TRACE("wzh", tout << "[debug] loop literal: ";
-                //         display(tout, l);
-                //         tout << std::endl;
-                //         tout << "current level: " << m_levels[b] << std::endl;
-                // );
-                // if (assigned_value(l) == l_false && m_levels[b] == lvl) {
                 if (assigned_value(l) == l_false && m_levels[b] == lvl && m_dm.same_stage_bool(b, m_curr_stage)) {
-                    // TRACE("wzh", tout << "[debug] loop literal: ";
-                    //     display(tout, l);
-                    //     tout << std::endl;
-                    // );
+                    DTRACE(tout << "[remove literal] show deleted literal: "; display(tout, l); tout << std::endl;);
                     m_num_marks++;
                     continue;
                 }
@@ -2378,7 +2398,7 @@ namespace nlsat {
 
                 // m_lemma is an implicating clause after backtracking current scope level.
                 if (found_decision){
-                    TRACE("wzh", tout << "[debug] found decision" << std::endl;);
+                    DTRACE(tout << "[debug] found decision, m_lemma is an implicating clause after backtracking current scope level" << std::endl;);
                     break;
                 }
 
@@ -2390,14 +2410,12 @@ namespace nlsat {
                 // We make progress by returning to a previous stage with additional information (new lemma)
                 // that forces us to select a new partial interpretation
                 if (only_literals_from_previous_stages(m_lemma.size(), m_lemma.data())){
-                    TRACE("wzh", tout << "[debug] all literals from previous stages" << std::endl;);
+                    DTRACE(tout << "[debug] lemma only contains literals from previous stages" << std::endl;);
                     break;
                 }
 
-                else {
-                    DTRACE(tout << "exists literal in current stage\n";);
-                }
                 
+                DTRACE(tout << "Conflict does not depend on the current decision, and it is still in the current stage\n";);
                 // Conflict does not depend on the current decision, and it is still in the current stage.
                 // We should find
                 //    - the maximal scope level in the lemma
@@ -2421,11 +2439,14 @@ namespace nlsat {
                     tout << std::endl;
                 );
                 DTRACE(tout << "before undo until level " << max_lvl << std::endl;
+                    tout << "curr level: " << scope_lvl() << std::endl;
                     display_trails(tout);
+                    m_dm.display_assigned_vars(tout);
                 );
                 undo_until_level(max_lvl);
                 DTRACE(tout << "after undo until level " << max_lvl << std::endl;
                     display_trails(tout);
+                    m_dm.display_assigned_vars(tout);
                 );
                 top = m_trail.size();
                 TRACE("nlsat_resolve", tout << "scope_lvl: " << scope_lvl() << " num marks: " << m_num_marks << "\n";);
@@ -2611,6 +2632,9 @@ namespace nlsat {
             }
             bool is_bool;
             hybrid_var last_var = m_dm.get_last_assigned_hybrid_var(is_bool);
+            DTRACE(tout << "b: " << b << std::endl;
+                tout << "v: " << v << std::endl;
+            );
             // can only have just one null_var
             if(b != null_var && v != null_var){
                 UNREACHABLE();
@@ -2621,16 +2645,18 @@ namespace nlsat {
                 m_bk = b;
                 m_search_mode = BOOL;
                 // check whether last var is m_pure_bool_convert
+                // goal bool var was picked
                 if(is_bool && last_var == m_pure_bool_convert[b]){
 
                 }
+                // goal bool var was not picked
                 else {
-                    // pop last new bool or new stage
+                    // pop last new bool or new stage (not goal bool var)
                     if(not_assigned_hybrid_var(last_var, is_bool)){
                         m_dm.pop_last_var();
                         m_trail.pop_back();
                     }
-                    // choose adjusted bool var
+                    // pick goal bool var
                     save_pick_bool_trail(m_pure_bool_convert[b]);
                     m_dm.erase_from_heap(m_pure_bool_convert[b], true);
                     m_dm.push_assigned_var(m_pure_bool_convert[b], true);
@@ -2652,7 +2678,7 @@ namespace nlsat {
                         m_trail.pop_back();
                     }
                     // choose adjusted arith var
-                    save_new_stage_trail();
+                    save_new_stage_trail(m_xk);
                     m_dm.erase_from_heap(v, false);
                     m_dm.push_assigned_var(v, false);
                 }
@@ -4132,11 +4158,11 @@ namespace nlsat {
                         break;
 
                     case trail::NEW_LEVEL:
-                        out << "------------------------------[NEW LEVEL " << ++level_cnt << " ]------------------------------\n";
+                        out << "------------------------------[NEW LEVEL " << ++level_cnt << " bool: " << ele.m_b << " ]------------------------------\n";
                         break;
                     
                     case trail::NEW_STAGE:
-                        out << "------------------------------[NEW STAGE " << ++stage_cnt << " ]------------------------------\n";
+                        out << "------------------------------[NEW STAGE " << ++stage_cnt << " arith: " << ele.m_x << " ]------------------------------\n";
                         break;
 
                     case trail::UPDT_EQ:

@@ -27,8 +27,8 @@ namespace nlsat {
 
     // define search mode
     // #define DYNAMIC_MODE BOOL_FIRST_MODE
-    #define DYNAMIC_MODE THEORY_FIRST_MODE
-    // #define DYNAMIC_MODE UNIFORM_MODE
+    // #define DYNAMIC_MODE THEORY_FIRST_MODE
+    #define DYNAMIC_MODE UNIFORM_MODE
     // #define DYNAMIC_MODE ORIGIN_STATIC_BOOL_FIRST_MODE
 
 
@@ -146,6 +146,8 @@ namespace nlsat {
 
         hybrid_var get_last_assigned_hybrid_var(bool & is_bool) const;
         var get_last_assigned_arith_var() const;
+        bool_var get_last_assigned_bool_var() const;
+        bool last_assigned_bool() const;
         unsigned assigned_size() const;
         unsigned assigned_arith_size() const;
         unsigned assigned_bool_size() const;
