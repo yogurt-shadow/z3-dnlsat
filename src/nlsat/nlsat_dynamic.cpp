@@ -848,19 +848,19 @@ namespace nlsat {
         }
 
         // only left this bool var unassigned
+        // bool var: pure bool index
         bool only_left_clause_bool(clause const & cls, bool_var b) const {
             bool have_only = false;
             for(literal l: cls){
                 // bool literal
                 if(m_atoms[l.var()] == nullptr){
-                    if(l.var() == b){
+                    // bool literal contains curr pure bool index
+                    if(m_pure_bool_convert[l.var()] == b){
                         have_only = true;
                     }
-                    else {
-                        // unassigned other bool_var
-                        if(!m_assigned_hybrid_vars.contains(l.var())){
-                            return false;
-                        }
+                    // unassigned other bool literals
+                    else if(m_bvalues[l.var()] == l_undef){
+                        return false;
                     }
                 }
                 // arith literal
@@ -880,7 +880,10 @@ namespace nlsat {
                 // bool literal
                 if(m_atoms[l.var()] == nullptr){
                     // unassigned bool literal
-                    if(!m_assigned_hybrid_vars.contains(l.var())){
+                    // if(!m_assigned_hybrid_vars.contains(l.var())){
+                    //     return false;
+                    // }
+                    if(m_bvalues[l.var()] == l_undef){
                         return false;
                     }
                 }
@@ -1130,9 +1133,7 @@ namespace nlsat {
             }
             m_hybrid_var_assigned_clauses[x].reset();
             // DTRACE(tout << "after undo watch clauses, display watch clauses\n";
-            //     display_clauses_watch(tout);
             //     display_unit_clauses(tout);
-            //     display_assigned_clauses(tout);
             // );
         }
 

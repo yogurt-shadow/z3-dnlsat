@@ -1587,7 +1587,9 @@ namespace nlsat {
 
         bool process_hybrid_clause(clause const & cls, bool satisfy_learned){
             DTRACE(tout << "show process clause:\n"; display(tout, cls); tout << std::endl;);
-            DTRACE(m_assignment.display(tout););
+            DTRACE(m_assignment.display(tout);
+                display_bool_assignment(tout);
+            );
             DTRACE(tout << "m_xk: " << m_xk << std::endl;
                 tout << "m_bk: " << m_bk << std::endl;
             );
@@ -2456,11 +2458,13 @@ namespace nlsat {
                     tout << "curr level: " << scope_lvl() << std::endl;
                     display_trails(tout);
                     m_dm.display_assigned_vars(tout);
+                    display_bool_assignment(tout);
                 );
                 undo_until_level(max_lvl);
                 DTRACE(tout << "after undo until level " << max_lvl << std::endl;
                     display_trails(tout);
                     m_dm.display_assigned_vars(tout);
+                    display_bool_assignment(tout);
                 );
                 top = m_trail.size();
                 TRACE("nlsat_resolve", tout << "scope_lvl: " << scope_lvl() << " num marks: " << m_num_marks << "\n";);
@@ -4521,6 +4525,10 @@ namespace nlsat {
 
     std::ostream & solver::display(std::ostream & out, clause const & cls) const {
         return m_imp->display(out, cls);
+    }
+
+    std::ostream & solver::display_bool_assignment(std::ostream & out) const {
+        return m_imp->display_bool_assignment(out);
     }
     // dnlsat
 };
