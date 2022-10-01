@@ -156,10 +156,6 @@ namespace nlsat {
         var_vector             m_perm;       // var -> var permutation of the variables
         var_vector             m_inv_perm;
 
-        enum branching_order {
-            INC, DEC, RAND, VSIDS
-        } m_branching_order;
-
         search_mode m_search_mode;
 
         // m_perm:     internal -> external
@@ -296,6 +292,13 @@ namespace nlsat {
         unsigned               m_learned_deleted;
         // hzw restart
 
+        unsigned               m_total_vars;
+        unsigned               m_bool_vars;
+        unsigned               m_arith_vars;
+        unsigned               m_pick_bool;
+        unsigned               m_pick_arith;
+
+
         imp(solver& s, ctx& c):
             m_ctx(c),
             m_solver(s),
@@ -326,7 +329,6 @@ namespace nlsat {
             reset_statistics();
             mk_true_bvar();
             m_lemma_count = 0;
-            m_branching_order = VSIDS;
         }
         
         ~imp() {
@@ -1467,6 +1469,7 @@ namespace nlsat {
                     m_dm.push_assigned_var(m_pure_bool_convert[v], true);
                     m_search_mode = BOOL;
                     save_pick_bool_trail(m_pure_bool_convert[v]);
+                    m_pick_bool++;
                     SASSERT(m_atoms[m_bk] == nullptr);
                     DTRACE(tout << "[select] pick bool var: b" << v << " -> " << m_pure_bool_convert[v] << std::endl;);
                 }
@@ -1479,6 +1482,7 @@ namespace nlsat {
                     m_stages++;
                     m_curr_stage++;
                     save_new_stage_trail(m_xk);
+                    m_pick_arith++;
                     DTRACE(tout << "[select] pick arith var: " << v << std::endl;);
                 }
             }
@@ -1958,6 +1962,10 @@ namespace nlsat {
             DTRACE(tout << "display pure bool vars\n";
                 display_var_vector(tout, m_pure_bool_vars);
             );
+
+            m_bool_vars = m_num_pure_bools;
+            m_arith_vars = num_vars();
+            m_total_vars = m_num_hybrid_vars;
         }
 
         lbool check(literal_vector& assumptions) {
@@ -2317,11 +2325,6 @@ namespace nlsat {
             ~scoped_reset_marks() { if (i.m_num_marks > 0) { i.m_num_marks = 0; for (char& m : i.m_marks) m = 0; } }
         };
 
-        inline bool is_vsids() const {
-            return m_branching_order == VSIDS;
-        }
-
-
         /**
            \brief Return true if the conflict was solved.
         */
@@ -2402,11 +2405,7 @@ namespace nlsat {
                 );
                 DTRACE(tout << "[debug] current m_xk: " << m_xk << std::endl;);
 
-                // wzh vsids
-                if(is_vsids()){
-                    m_dm.bump_conflict_hybrid_vars();
-                }
-                // hzw vsids
+                m_dm.bump_conflict_hybrid_vars();
 
                 DTRACE(m_dm.display_var_stage(tout);
                     tout << "curr stage: " << m_curr_stage << std::endl;
@@ -2676,6 +2675,7 @@ namespace nlsat {
                     }
                     // pick goal bool var
                     save_pick_bool_trail(m_pure_bool_convert[b]);
+                    m_pick_bool++;
                     m_dm.erase_from_heap(m_pure_bool_convert[b], true);
                     m_dm.push_assigned_var(m_pure_bool_convert[b], true);
                 }
@@ -2697,6 +2697,7 @@ namespace nlsat {
                     }
                     // choose adjusted arith var
                     save_new_stage_trail(m_xk);
+                    m_pick_arith++;
                     m_dm.erase_from_heap(v, false);
                     m_dm.push_assigned_var(v, false);
                 }
@@ -2754,6 +2755,12 @@ namespace nlsat {
             st.update("nlsat decisions", m_decisions);
             st.update("nlsat stages", m_stages);
             st.update("nlsat irrational assignments", m_irrational_assignments);
+            // basic information
+            st.update("nlsat bool vars", m_bool_vars);
+            st.update("nlsat arith vars", m_arith_vars);
+            st.update("nlsat total vars", m_total_vars);
+            st.update("nlsat pick bool", m_pick_bool);
+            st.update("nlsat pick arith", m_pick_arith);
             // wzh restart
             st.update("nlsat restarts", m_restarts);
             st.update("nlsat learned added", m_learned_added);
@@ -2772,6 +2779,11 @@ namespace nlsat {
             m_learned_added          = 0;
             m_learned_deleted        = 0;
             // hzw restart
+            m_total_vars             = 0;
+            m_bool_vars              = 0;
+            m_arith_vars             = 0;
+            m_pick_bool              = 0;
+            m_pick_arith             = 0;
         }
 
         // -----------------------
