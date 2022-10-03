@@ -1,0 +1,14 @@
+total: 11889
+sat: 5359
+unsat: 5140
+solved: 10499
+unsolved: 1390
+arith sat: 5068
+arith unsat: 211
+arith solved: 5279
+bool sat: 291
+bool unsat: 4929
+bool solved: 5220
+memory out: 4
+time out: 1381
+unknown: 5

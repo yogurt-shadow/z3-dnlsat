@@ -1,0 +1,20 @@
+unsat
+(:eliminated-applications 7308
+ :eliminated-vars         30092
+ :max-memory              472.23
+ :memory                  349.73
+ :nlsat-arith-vars        36899
+ :nlsat-bool-vars         1
+ :nlsat-conflicts         332
+ :nlsat-decisions         669
+ :nlsat-learned-added     249
+ :nlsat-learned-deleted   2
+ :nlsat-pick-arith        5011
+ :nlsat-propagations      8770
+ :nlsat-restarts          2
+ :nlsat-stages            5011
+ :nlsat-total-vars        36900
+ :num-allocs              76790732820.00
+ :rlimit-count            15832240
+ :time                    43.29
+ :total-time              44.52)

@@ -1,0 +1,9 @@
+sat
+(:max-memory         18.19
+ :memory             18.04
+ :nlsat-propagations 9
+ :nlsat-stages       4
+ :num-allocs         8011
+ :rlimit-count       6810
+ :time               0.01
+ :total-time         0.01)

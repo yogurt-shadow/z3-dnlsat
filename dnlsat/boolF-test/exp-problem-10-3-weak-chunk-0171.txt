@@ -1,0 +1,7 @@
+unsat
+(:eliminated-vars 1
+ :max-memory      17.95
+ :memory          17.95
+ :num-allocs      18048
+ :rlimit-count    2341
+ :time            0.00)

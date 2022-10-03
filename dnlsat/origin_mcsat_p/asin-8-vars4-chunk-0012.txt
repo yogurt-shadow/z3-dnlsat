@@ -1,0 +1,11 @@
+sat
+(:eliminated-applications      2
+ :eliminated-vars              2
+ :max-memory                   18.05
+ :memory                       18.05
+ :nlsat-irrational-assignments 1
+ :nlsat-propagations           6
+ :nlsat-stages                 3
+ :num-allocs                   22831
+ :rlimit-count                 1207
+ :time                         0.00)

@@ -1,0 +1,15 @@
+sat
+(:cnf-encoding-aux-vars        44
+ :eliminated-applications      4
+ :eliminated-vars              121
+ :max-memory                   20.68
+ :memory                       18.43
+ :nlsat-conflicts              5849
+ :nlsat-decisions              6254
+ :nlsat-irrational-assignments 89
+ :nlsat-propagations           55353
+ :nlsat-stages                 4775
+ :num-allocs                   66732219
+ :rlimit-count                 9512586
+ :time                         5.02
+ :total-time                   5.02)

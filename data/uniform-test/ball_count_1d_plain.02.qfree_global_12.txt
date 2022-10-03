@@ -1,0 +1,21 @@
+sat
+(:cnf-encoding-aux-vars 18
+ :eliminated-vars       113
+ :max-memory            19.09
+ :memory                18.41
+ :nlsat-arith-vars      14
+ :nlsat-bool-vars       30
+ :nlsat-conflicts       273
+ :nlsat-decisions       164
+ :nlsat-learned-added   268
+ :nlsat-learned-deleted 148
+ :nlsat-pick-arith      206
+ :nlsat-pick-bool       275
+ :nlsat-propagations    2094
+ :nlsat-restarts        2
+ :nlsat-stages          251
+ :nlsat-total-vars      44
+ :num-allocs            1785771
+ :rlimit-count          193913
+ :time                  0.10
+ :total-time            0.11)

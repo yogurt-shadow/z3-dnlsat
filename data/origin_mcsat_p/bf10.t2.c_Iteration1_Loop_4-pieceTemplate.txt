@@ -1,0 +1,13 @@
+sat
+(:eliminated-applications 183
+ :eliminated-vars         708
+ :max-memory              25.06
+ :memory                  19.97
+ :nlsat-conflicts         24446
+ :nlsat-decisions         45506
+ :nlsat-propagations      790947
+ :nlsat-stages            120429
+ :num-allocs              4514332706.00
+ :rlimit-count            388321038
+ :time                    123.66
+ :total-time              123.40)

@@ -1,0 +1,8 @@
+total: 11889
+sat: 5316
+unsat: 5174
+solved: 10490
+unsolved: 1399
+memory out: 3
+time out: 1390
+unknown: 6

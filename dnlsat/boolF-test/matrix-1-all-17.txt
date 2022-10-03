@@ -1,0 +1,19 @@
+sat
+(:max-memory            18.35
+ :memory                18.15
+ :nlsat-arith-vars      29
+ :nlsat-bool-vars       1
+ :nlsat-conflicts       213
+ :nlsat-decisions       19
+ :nlsat-learned-added   213
+ :nlsat-learned-deleted 50
+ :nlsat-pick-arith      340
+ :nlsat-pick-bool       2
+ :nlsat-propagations    1699
+ :nlsat-restarts        1
+ :nlsat-stages          340
+ :nlsat-total-vars      30
+ :num-allocs            329142
+ :rlimit-count          67113
+ :time                  0.04
+ :total-time            0.04)

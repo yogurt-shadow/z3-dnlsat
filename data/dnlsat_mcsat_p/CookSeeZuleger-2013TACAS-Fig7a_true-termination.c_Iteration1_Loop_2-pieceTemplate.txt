@@ -1,0 +1,16 @@
+unsat
+(:eliminated-applications 2020
+ :eliminated-vars         7396
+ :max-memory              70.69
+ :memory                  53.76
+ :nlsat-conflicts         18960
+ :nlsat-decisions         22299
+ :nlsat-learned-added     13527
+ :nlsat-learned-deleted   9214
+ :nlsat-propagations      206281
+ :nlsat-restarts          11
+ :nlsat-stages            41470
+ :num-allocs              445061776
+ :rlimit-count            5355298
+ :time                    81.04
+ :total-time              80.99)
