@@ -1,6 +1,0 @@
-unsat
-(:max-memory   18.04
- :memory       17.99
- :num-allocs   4193
- :rlimit-count 584
- :total-time   0.01)

@@ -1,9 +1,0 @@
-sat
-(:max-memory         18.04
- :memory             18.04
- :nlsat-conflicts    1
- :nlsat-propagations 13
- :nlsat-stages       5
- :num-allocs         23963
- :rlimit-count       1774
- :time               0.00)

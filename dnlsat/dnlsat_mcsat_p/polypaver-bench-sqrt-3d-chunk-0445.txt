@@ -1,6 +1,0 @@
-unsat
-(:max-memory   18.02
- :memory       17.97
- :num-allocs   4207
- :rlimit-count 748
- :total-time   0.01)

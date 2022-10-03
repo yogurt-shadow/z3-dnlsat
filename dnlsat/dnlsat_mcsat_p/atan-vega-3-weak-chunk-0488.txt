@@ -1,9 +1,0 @@
-sat
-(:max-memory         18.12
- :memory             17.97
- :nlsat-decisions    1
- :nlsat-propagations 8
- :nlsat-stages       4
- :num-allocs         5948
- :rlimit-count       2902
- :time               0.00)

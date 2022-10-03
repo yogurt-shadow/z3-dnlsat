@@ -1,7 +1,0 @@
-sat
-(:eliminated-applications 6
- :eliminated-vars         3
- :max-memory              17.95
- :memory                  17.95
- :num-allocs              18208
- :rlimit-count            216)

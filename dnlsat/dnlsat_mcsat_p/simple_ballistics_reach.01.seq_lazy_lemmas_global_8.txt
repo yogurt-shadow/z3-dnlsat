@@ -1,9 +1,0 @@
-unsat
-(:eliminated-applications 3
- :eliminated-vars         68
- :max-memory              19.66
- :memory                  18.68
- :num-allocs              28693
- :rlimit-count            87697
- :time                    0.02
- :total-time              0.04)
