@@ -332,7 +332,14 @@ void parse_trace_tags_text(){
         if(len <= 1 || line[0] == '#'){
             continue;
         }
-        std::string tag = line.substr(0, len - 1);
+        std::string tag;
+        if(line[len - 1] == '\n'){
+            tag = line.substr(0, len - 1);
+        }
+        else {
+            tag = line;
+        }
+        // std::string tag = line.substr(0, len - 1);
         std::cout << "# enable tag: " << tag << std::endl;
         char * ptr = new char[len];
         strcpy(ptr, tag.c_str());

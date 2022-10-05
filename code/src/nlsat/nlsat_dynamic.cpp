@@ -152,6 +152,16 @@ namespace nlsat {
             }
         };
 
+        // random order
+        struct random_order {
+            unsigned m_seed;
+            random_order(unsigned seed): m_seed(seed) {}
+            bool operator()(hybrid_var v1, hybrid_var v2) const {
+                random_gen r(m_seed);
+                return r() % 2 == 0;
+            }
+        };
+
         #if DYNAMIC_MODE == UNIFORM_MODE
             heap<uniform_order> m_hybrid_heap;
         #elif DYNAMIC_MODE == BOOL_FIRST_MODE
@@ -159,7 +169,9 @@ namespace nlsat {
         #elif DYNAMIC_MODE == THEORY_FIRST_MODE
             heap<theory_first_order> m_hybrid_heap;
         #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
-            heap<static_bool_first_order> m_hybrid_heap;            
+            heap<static_bool_first_order> m_hybrid_heap;
+        #elif DYNAMIC_MODE == RANDOM_MODE
+            heap<random_order> m_hybrid_heap;
         #endif
 
         /**
@@ -182,6 +194,7 @@ namespace nlsat {
         unsigned curr_lt_assign;
         unsigned & m_restart;
         unsigned & m_learned_deleted;
+        unsigned m_rand_seed;
 
         /**
          * Learnt clause management
@@ -198,11 +211,18 @@ namespace nlsat {
         int learntsize_adjust_cnt;
         const unsigned learntsize_adjust_start_confl = 100;
         const double learntsize_adjust_inc = 1.5;
+
+        // unit propagate / R propagate
+        interval_set_vector m_unit_var_infeasible;
+        lbool_vector m_unit_bool_value;
+        hybrid_var_vector m_propagate_vars;
+
         
         imp(anum_manager & am, pmanager & pm, assignment & ass,  svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, atom_vector const & atoms, 
-        unsigned & restart, unsigned & deleted)
+        unsigned & restart, unsigned & deleted, unsigned seed)
         : m_am(am), m_pm(pm), m_assignment(ass), m_clauses(clauses), m_learned(learned), m_atoms(atoms),
         m_restart(restart), m_solver(s), m_learned_deleted(deleted), m_bvalues(bvalues), m_pure_bool_vars(pure_bool_vars), m_pure_bool_convert(pure_bool_convert),
+        m_rand_seed(seed),
 
         #if DYNAMIC_MODE == UNIFORM_MODE
             m_hybrid_heap(200, uniform_order(m_hybrid_activity))
@@ -212,6 +232,8 @@ namespace nlsat {
             m_hybrid_heap(200, theory_first_order(m_hybrid_activity, m_num_bool))
         #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
             m_hybrid_heap(200, static_bool_first_order(m_num_bool))
+        #elif DYNAMIC_MODE == RANDOM_MODE
+            m_hybrid_heap(200, random_order(m_rand_seed))
         #endif
         
         {}
@@ -249,6 +271,9 @@ namespace nlsat {
             m_hybrid_heap.set_bounds(m_num_hybrid);
             m_find_stage.resize(m_num_vars, null_var);
             m_bool_find_stage.resize(m_num_bool, null_var);
+            // unit propagate
+            m_unit_var_infeasible.resize(m_num_vars, nullptr);
+            m_unit_bool_value.resize(m_num_bool, l_undef);
         }
 
         // set hybrid var watch for each clause
@@ -536,6 +561,7 @@ namespace nlsat {
             m_find_stage.resize(m_num_vars, null_var);
             m_bool_find_stage.resize(m_num_bool, null_var);
             m_hybrid_heap.set_bounds(m_num_hybrid);
+            m_propagate_vars.reset();
             rebuild_var_heap();
             reset_assigned_vars();
         }
@@ -1125,7 +1151,6 @@ namespace nlsat {
                 }
                 m_hybrid_var_unit_clauses[v].shrink(j);
             }
-            // m_unit_var_clauses.shrink(j);
             // assigned clauses ==> unit clauses
             j = 0;
             for(auto ele: m_hybrid_var_assigned_clauses[x]){
@@ -1533,8 +1558,8 @@ namespace nlsat {
     };
 
     Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
-    atom_vector const & atoms, unsigned & restart, unsigned & deleted){
-        m_imp = alloc(imp, am, pm, ass, bvalues, pure_bool_vars, pure_bool_convert, s, clauses, learned, atoms, restart, deleted);
+    atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned seed){
+        m_imp = alloc(imp, am, pm, ass, bvalues, pure_bool_vars, pure_bool_convert, s, clauses, learned, atoms, restart, deleted, seed);
     }
 
     Dynamic_manager::~Dynamic_manager(){

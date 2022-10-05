@@ -27,6 +27,7 @@ Revision History:
  * @brief This version supports arbitrary order of hybrid boolean var and arith var
  * 
  * @note Implementation Note
+ * ------------------- version1 -------------------
  * 1. Do not distinguish hybrid vars (bool var and arith var) when watching, doing or undoing clauses
  * 2. Add new trail kind
  *    2.1 Pick Bool Var: select a new bool var to process
@@ -37,10 +38,13 @@ Revision History:
  *    3.3 Only left arith var, search mode arith
  *    3.4 left two unassigned vars, unreachable
  * 4. New Stage at the end of arith assignment (m_xk = num_vars())
- * 5. Shall we register new stage when switching mode ?
+ * 5. Register new stage when switching mode
+ * ------------------- version2 -------------------
+ * 6. unit propagate after assignment
  * 
  * @version
  * version1 (2022/10/02)
+ * version2 (2022/10/05)
  * ---------------------------------------------------------------------------------------------------------------
  **/
 
@@ -114,7 +118,6 @@ namespace nlsat {
         
 
         typedef polynomial::cache cache;
-        typedef ptr_vector<interval_set> interval_set_vector;
 
         ctx&                    m_ctx;
         solver&                 m_solver;
@@ -321,7 +324,7 @@ namespace nlsat {
             m_num_bool_vars(0),
             m_display_var(m_perm),
             m_display_assumption(nullptr),
-            m_dm(m_am, m_pm, m_assignment, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted),
+            m_dm(m_am, m_pm, m_assignment, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted, m_random_seed),
             m_explain(s, m_assignment, m_cache, m_atoms, m_var2eq, m_evaluator, m_dm),
             m_scope_lvl(0),
             m_lemma(s),
@@ -4165,6 +4168,8 @@ namespace nlsat {
                 out << "-----------------theory first mode-----------------\n";
             #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
                 out << "-----------------origin static bool first mode-----------------\n";
+            #elif DYNAMIC_MODE == RANDOM_MODE
+                out << "-----------------random mode-----------------\n";
             #else
                 UNREACHABLE();
             #endif

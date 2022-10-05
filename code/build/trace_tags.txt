@@ -20,12 +20,3 @@ nlsat_reorder
 wzh
 nlsat_assign
 dnlsat
-
-
-
-
-
-
-
-
-

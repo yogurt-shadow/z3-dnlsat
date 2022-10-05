@@ -4,6 +4,7 @@
 #include "nlsat/nlsat_clause.h"
 #include "nlsat/nlsat_assignment.h"
 #include "util/hashtable.h"
+#include "nlsat/nlsat_interval_set.h"
 #include "nlsat/nlsat_solver.h"
 /**
  * @brief Dynamic Manager for nlsat
@@ -25,11 +26,15 @@ namespace nlsat {
     // static bool first - 4
     #define ORIGIN_STATIC_BOOL_FIRST_MODE 4
 
+    // random order - 5
+    #define RANDOM_MODE 5
+
     // define search mode
     // #define DYNAMIC_MODE BOOL_FIRST_MODE
     // #define DYNAMIC_MODE THEORY_FIRST_MODE
-    #define DYNAMIC_MODE UNIFORM_MODE
+    // #define DYNAMIC_MODE UNIFORM_MODE
     // #define DYNAMIC_MODE ORIGIN_STATIC_BOOL_FIRST_MODE
+    #define DYNAMIC_MODE RANDOM_MODE
 
 
     enum search_mode {
@@ -42,6 +47,8 @@ namespace nlsat {
     using clause_index = var;
     using hybrid_var = var;
     using hybrid_var_vector = var_vector;
+    using interval_set_vector = ptr_vector<interval_set>;
+    using lbool_vector = vector<lbool>;
 
     // hastable for var
     struct var_hash {
@@ -125,7 +132,7 @@ namespace nlsat {
         imp * m_imp;
     public:
         Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
-        atom_vector const & atoms, unsigned & restart, unsigned & deleted);
+        atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned rand_seed);
         ~Dynamic_manager();
 
         // set num of arit vars
