@@ -5,6 +5,7 @@
 #include "nlsat/nlsat_assignment.h"
 #include "util/hashtable.h"
 #include "nlsat/nlsat_interval_set.h"
+#include "nlsat/nlsat_evaluator.h"
 #include "nlsat/nlsat_solver.h"
 /**
  * @brief Dynamic Manager for nlsat
@@ -131,7 +132,7 @@ namespace nlsat {
     private:
         imp * m_imp;
     public:
-        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
+        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, evaluator & eva, interval_set_manager & ism, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
         atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned rand_seed);
         ~Dynamic_manager();
 
@@ -208,6 +209,8 @@ namespace nlsat {
         var all_assigned_or_left_literal(bool_var b) const;
         void erase_from_heap(hybrid_var v, bool is_bool);
         bool finish_status() const;
+
+        bool_var get_unit_bool_var() const;
 
         std::ostream & display_assigned_vars(std::ostream & out) const;
         std::ostream & display_var_stage(std::ostream &) const;

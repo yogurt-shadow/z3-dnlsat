@@ -303,6 +303,7 @@ namespace nlsat {
         unsigned               m_arith_vars;
         unsigned               m_pick_bool;
         unsigned               m_pick_arith;
+        unsigned               m_unit_propagate;
 
 
         imp(solver& s, ctx& c):
@@ -324,7 +325,7 @@ namespace nlsat {
             m_num_bool_vars(0),
             m_display_var(m_perm),
             m_display_assumption(nullptr),
-            m_dm(m_am, m_pm, m_assignment, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted, m_random_seed),
+            m_dm(m_am, m_pm, m_assignment, m_evaluator, m_ism, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted, m_random_seed),
             m_explain(s, m_assignment, m_cache, m_atoms, m_var2eq, m_evaluator, m_dm),
             m_scope_lvl(0),
             m_lemma(s),
@@ -1429,7 +1430,6 @@ namespace nlsat {
         void select_next_hybrid_var(){
             DTRACE(tout << "start of select next hybrid var\n";);
             // we have finish search
-            // if(m_dm.assigned_size() >= m_num_hybrid_vars + 1){
             if(m_dm.finish_status()){
                 DTRACE(tout << "process finished\n";);
                 m_xk = null_var;
@@ -1437,28 +1437,20 @@ namespace nlsat {
                 m_search_mode = FINISH;
             }
             else {
-                // end of arith assignment
-                // if(m_dm.assigned_arith_size() == num_vars()){
-                //     DTRACE(tout << "end of arith assignment, new stage and push num of arith vars\n";);
-                //     // set m_xk with num of arith vars
-                //     m_xk = num_vars();
-                //     m_dm.push_assigned_var(m_xk, false);
-                //     save_new_stage_trail(m_xk);
-                //     m_stages++;
-                //     m_curr_stage++;
-                //     // finish search
-                //     // end of arith process is exactly end of whole process
-                //     if(m_dm.finish_status()){
-                //          DTRACE(tout << "process finished\n";);
-                //         m_xk = null_var;
-                //         m_bk = null_var;
-                //         m_search_mode = FINISH;
-                //         return;
-                //     }
-                // }
-
                 bool is_bool;
-                hybrid_var v = m_dm.vsids_select(is_bool);
+                hybrid_var v;
+                bool_var unit_bool_var = m_dm.get_unit_bool_var();
+                // unit propagate
+                if(unit_bool_var != null_var){
+                    DTRACE(tout << "find unit bool var: " << unit_bool_var << " -> " << v << std::endl;);
+                    is_bool = true;
+                    v = m_pure_bool_vars[unit_bool_var];
+                    m_dm.erase_from_heap(unit_bool_var, true);
+                    m_unit_propagate++;
+                }
+                else {
+                    v = m_dm.vsids_select(is_bool);
+                }
                 // for bool var: return atom index
                 if(is_bool){
                     // arith --switch--> mode
@@ -2767,6 +2759,7 @@ namespace nlsat {
             st.update("nlsat total vars", m_total_vars);
             st.update("nlsat pick bool", m_pick_bool);
             st.update("nlsat pick arith", m_pick_arith);
+            st.update("nlsat unit propagate", m_unit_propagate);
             // wzh restart
             st.update("nlsat restarts", m_restarts);
             st.update("nlsat learned added", m_learned_added);
@@ -2790,6 +2783,7 @@ namespace nlsat {
             m_arith_vars             = 0;
             m_pick_bool              = 0;
             m_pick_arith             = 0;
+            m_unit_propagate         = 0;
         }
 
         // -----------------------

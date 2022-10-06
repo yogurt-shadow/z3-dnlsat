@@ -11,6 +11,8 @@ namespace nlsat {
         anum_manager & m_am;
         pmanager & m_pm;
         solver & m_solver;
+        evaluator & m_evaluator;
+        interval_set_manager & m_ism;
 
         /**
          * Assignment
@@ -212,17 +214,15 @@ namespace nlsat {
         const unsigned learntsize_adjust_start_confl = 100;
         const double learntsize_adjust_inc = 1.5;
 
-        // unit propagate / R propagate
-        interval_set_vector m_unit_var_infeasible;
-        lbool_vector m_unit_bool_value;
-        hybrid_var_vector m_propagate_vars;
+        // unit propagate
+        bool_var_vector m_unit_bool_vars;
 
         
-        imp(anum_manager & am, pmanager & pm, assignment & ass,  svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, atom_vector const & atoms, 
+        imp(anum_manager & am, pmanager & pm, assignment & ass, evaluator & eva, interval_set_manager & ism, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, atom_vector const & atoms, 
         unsigned & restart, unsigned & deleted, unsigned seed)
         : m_am(am), m_pm(pm), m_assignment(ass), m_clauses(clauses), m_learned(learned), m_atoms(atoms),
         m_restart(restart), m_solver(s), m_learned_deleted(deleted), m_bvalues(bvalues), m_pure_bool_vars(pure_bool_vars), m_pure_bool_convert(pure_bool_convert),
-        m_rand_seed(seed),
+        m_rand_seed(seed), m_evaluator(eva), m_ism(ism),
 
         #if DYNAMIC_MODE == UNIFORM_MODE
             m_hybrid_heap(200, uniform_order(m_hybrid_activity))
@@ -271,9 +271,7 @@ namespace nlsat {
             m_hybrid_heap.set_bounds(m_num_hybrid);
             m_find_stage.resize(m_num_vars, null_var);
             m_bool_find_stage.resize(m_num_bool, null_var);
-            // unit propagate
-            m_unit_var_infeasible.resize(m_num_vars, nullptr);
-            m_unit_bool_value.resize(m_num_bool, l_undef);
+            m_unit_bool_vars.reset();
         }
 
         // set hybrid var watch for each clause
@@ -296,6 +294,7 @@ namespace nlsat {
                 }
                 // one hybrid var, unit and no watch
                 else if(cls->m_vars.size() + cls->m_bool_vars.size() == 1){
+                    // unit to bool var
                     if(cls->m_vars.empty()){
                         DTRACE(tout << "bool unit clause\n";);
                         SASSERT(cls->m_bool_vars.size() == 1);
@@ -303,6 +302,7 @@ namespace nlsat {
                         m_hybrid_var_unit_clauses[x].push_back(i);
                         cls->set_watched_var(null_var, null_var);
                     }
+                    // unit to arith var
                     else if(cls->m_bool_vars.empty()) {
                         DTRACE(tout << "arith unit clause\n";);
                         SASSERT(cls->m_vars.size() == 1);
@@ -357,7 +357,22 @@ namespace nlsat {
             //     display_unit_clauses(tout);
             //     display_assigned_clauses(tout);
             // );
+            update_unit_bool_vars();
             DTRACE(tout << "end of set watch\n";);
+        }
+
+        void update_unit_bool_vars(){
+            m_unit_bool_vars.reset();
+            for(bool_var b = 0; b < m_num_bool; b++){
+                if(!m_hybrid_var_unit_clauses[b].empty()){
+                    m_unit_bool_vars.push_back(b);
+                }
+            }
+        }
+
+        // bool var: pure bool index
+        bool_var get_unit_bool_var() const {
+            return m_unit_bool_vars.empty() ? null_var : m_unit_bool_vars[0];
         }
 
         // collect arith var and bool var for each clause
@@ -561,7 +576,7 @@ namespace nlsat {
             m_find_stage.resize(m_num_vars, null_var);
             m_bool_find_stage.resize(m_num_bool, null_var);
             m_hybrid_heap.set_bounds(m_num_hybrid);
-            m_propagate_vars.reset();
+            m_unit_bool_vars.reset();
             rebuild_var_heap();
             reset_assigned_vars();
         }
@@ -906,9 +921,6 @@ namespace nlsat {
                 // bool literal
                 if(m_atoms[l.var()] == nullptr){
                     // unassigned bool literal
-                    // if(!m_assigned_hybrid_vars.contains(l.var())){
-                    //     return false;
-                    // }
                     if(m_bvalues[l.var()] == l_undef){
                         return false;
                     }
@@ -1061,6 +1073,7 @@ namespace nlsat {
             //     display_unit_clauses(tout);
             //     display_assigned_clauses(tout);
             // );
+            update_unit_bool_vars();
         }
 
         bool unit_clause_contains(clause_index idx) const {
@@ -1160,6 +1173,7 @@ namespace nlsat {
             // DTRACE(tout << "after undo watch clauses, display watch clauses\n";
             //     display_unit_clauses(tout);
             // );
+            update_unit_bool_vars();
         }
 
         void reset_conflict_vars(){
@@ -1557,9 +1571,9 @@ namespace nlsat {
         }
     };
 
-    Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
+    Dynamic_manager::Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, evaluator & eva, interval_set_manager & ism, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
     atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned seed){
-        m_imp = alloc(imp, am, pm, ass, bvalues, pure_bool_vars, pure_bool_convert, s, clauses, learned, atoms, restart, deleted, seed);
+        m_imp = alloc(imp, am, pm, ass, eva, ism, bvalues, pure_bool_vars, pure_bool_convert, s, clauses, learned, atoms, restart, deleted, seed);
     }
 
     Dynamic_manager::~Dynamic_manager(){
@@ -1773,6 +1787,10 @@ namespace nlsat {
 
     hybrid_var Dynamic_manager::max_assigned_var(unsigned sz, literal const * ls, bool & is_bool, stage_var & res_stage) const {
         return m_imp->max_assigned_var(sz, ls, is_bool, res_stage);
+    }
+
+    bool_var Dynamic_manager::get_unit_bool_var() const {
+        return m_imp->get_unit_bool_var();
     }
 
     bool Dynamic_manager::finish_status() const {
