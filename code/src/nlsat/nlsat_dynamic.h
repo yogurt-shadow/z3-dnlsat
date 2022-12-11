@@ -1,12 +1,11 @@
 #pragma once
 
-#include "nlsat/nlsat_types.h"
+#include "nlsat/nlsat_advanced_types.h"
 #include "nlsat/nlsat_clause.h"
 #include "nlsat/nlsat_assignment.h"
-#include "util/hashtable.h"
-#include "nlsat/nlsat_interval_set.h"
 #include "nlsat/nlsat_evaluator.h"
 #include "nlsat/nlsat_solver.h"
+
 /**
  * @brief Dynamic Manager for nlsat
  */
@@ -15,117 +14,42 @@
 #define DCTRACE(COND, CODE) CTRACE("dnlsat", COND, CODE)
 
 namespace nlsat {
-    // dynamic mode:
-    // hybrid - 1
-    #define UNIFORM_MODE 1
-    // bool_first - 2
-    #define BOOL_FIRST_MODE 2
-    // theory_first - 3
-    #define THEORY_FIRST_MODE 3
+    /**
+     * Branching Heuristic for Dynamic Nlsat
+     * * 1. ORIGIN_STATIC_BOOL_FIRST_MODE
+     * ~ bool first, theory next, static order
+     * * 2. BOOL_FIRST_VSIDS
+     * ~ bool first, theory next, vsids order
+     * * 3. THEORY_FIRST_VSIDS
+     * ~ theory first, bool next, vsids order
+     * * 4. UNIFORM_VSIDS
+     * ~ bool and theory vsids order
+     * * 5. RANDOM_ORDER
+     * ~ random pick next bool/theory var
+    */
+    #define                                                 UNIFORM_VSIDS                          1
+    #define                                                 BOOL_FIRST_VSIDS                       2
+    #define                                                 THEORY_FIRST_VSIDS                     3
+    #define                                                 ORIGIN_STATIC_BOOL_FIRST_MODE          4
+    #define                                                 RANDOM_MODE                            5
 
-    // used for debug
-    // static bool first - 4
-    #define ORIGIN_STATIC_BOOL_FIRST_MODE 4
+    // * choose dynamic order
+    #define DYNAMIC_MODE                                    UNIFORM_VSIDS
 
-    // random order - 5
-    #define RANDOM_MODE 5
-
-    // define search mode
-    // #define DYNAMIC_MODE BOOL_FIRST_MODE
-    // #define DYNAMIC_MODE THEORY_FIRST_MODE
-    // #define DYNAMIC_MODE UNIFORM_MODE
-    // #define DYNAMIC_MODE ORIGIN_STATIC_BOOL_FIRST_MODE
-    #define DYNAMIC_MODE RANDOM_MODE
-
-
+    /**
+     * ^ BOOL: search bool var
+     * ^ ARITH: search arith var
+     * ^ INIT: search begin
+     * ^ FINISH: search finish
+     * ^ switch: search from arith to bool, new stage
+    */
     enum search_mode {
         BOOL, ARITH, INIT, FINISH, SWITCH
     };
 
-    using stage_var = var;
-    using literal_index = var;
-    using atom_index = var;
-    using clause_index = var;
-    using hybrid_var = var;
-    using hybrid_var_vector = var_vector;
-    using interval_set_vector = ptr_vector<interval_set>;
-    using lbool_vector = vector<lbool>;
-
-    // hastable for var
-    struct var_hash {
-        unsigned operator()(var x) const {
-            return x;
-        }
-    };
-
-    struct var_eq {
-        bool operator()(var x, var y) const {
-            return x == y;
-        }
-    };
-
-    using var_table = hashtable<var, var_hash, var_eq>;
-    using bool_var_table = var_table;
-    using hybrid_var_table = var_table;
-    using hybrid_var_pair = std::pair<var, var>;
-    using var_vector_vector = vector<var_vector>;
-    using var_table_vector = vector<var_table>;
-
-    class dynamic_atom {
-    private:
-        atom_index m_index;
-        atom const * m_atom;
-    public:
-        var_table m_vars;
-        dynamic_atom(atom_index id, atom const * at, var_table const & vars): 
-        m_index(id), m_atom(at), m_vars(vars) {}
-        ~dynamic_atom(){}
-
-        unsigned get_index() const {
-            return m_index;
-        }
-
-        atom const * get_atom() const {
-            return m_atom;
-        }
-    };
-
-    class dynamic_clause {
-    private:
-        clause_index m_index;
-        clause const * m_clause;
-    public:
-        hybrid_var_pair m_watched_var;
-        var_table m_vars;
-        bool_var_table m_bool_vars;
-        dynamic_clause(clause_index id, clause const * cls, var_table const & vars, var_table const & bool_vars): 
-        m_index(id), m_clause(cls), m_vars(vars), m_bool_vars(bool_vars) {
-            m_watched_var = hybrid_var_pair(null_var, null_var);
-        }
-        ~dynamic_clause(){}
-
-        unsigned get_index() const {
-            return m_index;
-        }
-
-        clause const * get_clause() const {
-            return m_clause;
-        }
-
-        void set_watched_var(hybrid_var x, hybrid_var y) {
-            m_watched_var.first = x;
-            m_watched_var.second = y;
-        }
-
-        var get_another_watched_var(hybrid_var x) const {
-            SASSERT(m_watched_var.first == x || m_watched_var.second == x);
-            return m_watched_var.first - x + m_watched_var.second;
-        }
-    };
-
-    using dynamic_atom_vector = vector<dynamic_atom *>;
-    using dynamic_clause_vector = vector<dynamic_clause *>;
-
+    /**
+     * @brief manager of dynamic nlsat
+    */
     class Dynamic_manager {
     public:
         struct imp;
@@ -136,9 +60,9 @@ namespace nlsat {
         atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned rand_seed);
         ~Dynamic_manager();
 
-        // set num of arit vars
-        void set_var_num(unsigned x);
-        // initialize
+        // set number of arith vars
+        void set_arith_num(unsigned x);
+        // initialize search
         void init_search();
 
         void init_learnt_management();
@@ -182,7 +106,7 @@ namespace nlsat {
 
         void del_bool(bool_var b);
         void del_clauses();
-        void register_atom(atom const * a);
+        void register_atom(atom * a);
 
         void clause_bump_act(clause & cls);
         void clause_decay_act();

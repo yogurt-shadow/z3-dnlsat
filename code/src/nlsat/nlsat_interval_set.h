@@ -22,12 +22,6 @@ Revision History:
 #include "math/polynomial/algebraic_numbers.h"
 
 namespace nlsat {
-   // poly bound for local search
-   enum poly_bound_state {
-      GT, GE, LT, LE, EQ, NEQ
-   };
-   // poly bound for local search
-
    struct interval {
         unsigned  m_lower_open:1;
         unsigned  m_upper_open:1;

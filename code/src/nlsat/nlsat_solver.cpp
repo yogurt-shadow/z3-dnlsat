@@ -33,7 +33,7 @@ Revision History:
  *    2.1 Pick Bool Var: select a new bool var to process
  *    2.2 Arith Assignment: select witness for arith var at the end of process clauses
  * 3. Adjust search mode in resolve:
- *    3.1 ALl assigned, search mode aribitrary, new clause triggered new conflict, continue resolution
+ *    3.1 All assigned, search mode aribitrary, new clause triggered new conflict, continue resolution
  *    3.2 Only left bool var, search mode bool
  *    3.3 Only left arith var, search mode arith
  *    3.4 left two unassigned vars, unreachable
@@ -368,6 +368,10 @@ namespace nlsat {
             m_explain.set_minimize_cores(min_cores);
             m_explain.set_factor(p.factor());
             m_am.updt_params(p.p);
+
+            // switch
+            
+            // switch
         }
 
         void reset() {
@@ -1903,7 +1907,7 @@ namespace nlsat {
             }
 
             init_pure_bool();
-            m_dm.set_var_num(num_vars());
+            m_dm.set_arith_num(num_vars());
             init_search();
             DTRACE(display_clauses(tout););
             m_explain.set_full_dimensional(is_full_dimensional());
@@ -4154,11 +4158,11 @@ namespace nlsat {
         }
 
         std::ostream & display_order_mode(std::ostream & out) const {
-            #if DYNAMIC_MODE == UNIFORM_MODE
+            #if DYNAMIC_MODE == UNIFORM_VSIDS
                 out << "-----------------uniform mode-----------------\n";
-            #elif DYNAMIC_MODE == BOOL_FIRST_MODE
+            #elif DYNAMIC_MODE == BOOL_FIRST_VSIDS
                 out << "-----------------bool first mode-----------------\n";
-            #elif DYNAMIC_MODE == THEORY_FIRST_MODE
+            #elif DYNAMIC_MODE == THEORY_FIRST_VSIDS
                 out << "-----------------theory first mode-----------------\n";
             #elif DYNAMIC_MODE == ORIGIN_STATIC_BOOL_FIRST_MODE
                 out << "-----------------origin static bool first mode-----------------\n";
