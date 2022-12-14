@@ -267,6 +267,8 @@ namespace nlsat {
 
          std::ostream & display(std::ostream & out, clause const & cls) const;
          std::ostream & display_bool_assignment(std::ostream & out) const;
+
+         bool enable_unit_propagate() const;
         // dnlsat
     };
 

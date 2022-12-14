@@ -162,7 +162,15 @@ namespace nlsat {
         var_vector             m_perm;       // var -> var permutation of the variables
         var_vector             m_inv_perm;
 
-        search_mode m_search_mode;
+        search_mode            m_search_mode;
+
+        nlsat_atom_vector      m_nlsat_atoms;
+        nlsat_clause_vector    m_nlsat_clauses;
+
+        const bool m_enable_decide_easier_literal         = true;
+        const bool m_enable_decide_random_literal         = false;
+
+        const bool m_enable_unit_propagate                = false;
 
         // m_perm:     internal -> external
         // m_inv_perm: external -> internal
@@ -325,7 +333,7 @@ namespace nlsat {
             m_num_bool_vars(0),
             m_display_var(m_perm),
             m_display_assumption(nullptr),
-            m_dm(m_am, m_pm, m_assignment, m_evaluator, m_ism, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted, m_random_seed),
+            m_dm(m_nlsat_clauses, m_nlsat_atoms, m_am, m_pm, m_assignment, m_evaluator, m_ism, m_bvalues, m_pure_bool_vars, m_pure_bool_convert, s, m_clauses, m_learned, m_atoms, m_restarts, m_learned_deleted, m_random_seed),
             m_explain(s, m_assignment, m_cache, m_atoms, m_var2eq, m_evaluator, m_dm),
             m_scope_lvl(0),
             m_lemma(s),
@@ -682,7 +690,9 @@ namespace nlsat {
                 if (m_pm.m().is_zero(cnst) && k == atom::EQ) return true_literal;
                 return false_literal;
             }
-            return literal(mk_ineq_atom(k, sz, ps, is_even), false);            
+            literal res = literal(mk_ineq_atom(k, sz, ps, is_even), false);
+            // m_dm.register_literal(res);
+            return res;
         }
 
         bool_var mk_root_atom(atom::kind k, var x, unsigned i, poly * p) {
@@ -1430,6 +1440,10 @@ namespace nlsat {
             m_var2eq[x] = a;
         }
 
+        bool enable_unit_propagate() const {
+            return m_enable_unit_propagate;
+        }
+
         // m_bk: atom index
         void select_next_hybrid_var(){
             DTRACE(tout << "start of select next hybrid var\n";);
@@ -1443,17 +1457,22 @@ namespace nlsat {
             else {
                 bool is_bool;
                 hybrid_var v;
-                bool_var unit_bool_var = m_dm.get_unit_bool_var();
-                // unit propagate
-                if(unit_bool_var != null_var){
-                    DTRACE(tout << "find unit bool var: " << unit_bool_var << " -> " << v << std::endl;);
-                    is_bool = true;
-                    v = m_pure_bool_vars[unit_bool_var];
-                    m_dm.erase_from_heap(unit_bool_var, true);
-                    m_unit_propagate++;
+                if(m_enable_unit_propagate) {
+                    bool_var unit_bool_var = m_dm.get_unit_bool_var();
+                    // unit propagate
+                    if(unit_bool_var != null_var){
+                        DTRACE(tout << "find unit bool var: " << unit_bool_var << " -> " << v << std::endl;);
+                        is_bool = true;
+                        v = m_pure_bool_vars[unit_bool_var];
+                        m_dm.erase_from_heap(unit_bool_var, true);
+                        m_unit_propagate++;
+                    }
+                    else {
+                        v = m_dm.heap_select(is_bool);
+                    }
                 }
                 else {
-                    v = m_dm.vsids_select(is_bool);
+                    v = m_dm.heap_select(is_bool);
                 }
                 // for bool var: return atom index
                 if(is_bool){
@@ -1616,6 +1635,9 @@ namespace nlsat {
         bool process_hybrid_clause_bool(clause const & cls){
             unsigned num_undef = 0;
             unsigned first_undef = UINT_MAX;
+            unsigned lowest_activity_index = UINT_MAX;
+            unsigned random_literal_index = UINT_MAX;
+            double lowest_activity = 0.0;
             for(unsigned i = 0; i < cls.size(); i++){
                 literal l = cls[i];
                 lbool val = value(l);
@@ -1632,6 +1654,17 @@ namespace nlsat {
                 if (first_undef == UINT_MAX){
                     first_undef = i;
                 }
+                // ^ update lowest activity undef literal
+                double curr_literal_activity = m_dm.get_literal_activity(l);
+                if(lowest_activity_index == UINT_MAX || curr_literal_activity < lowest_activity) {
+                    lowest_activity = curr_literal_activity;
+                    lowest_activity_index = i;
+                }
+                // ^ random choose or not
+                random_gen r(++m_random_seed);
+                if(r() % num_undef == 0) {
+                    random_literal_index = i;
+                }
             }
             if (num_undef == 0){
                 return false;
@@ -1644,7 +1677,15 @@ namespace nlsat {
             // decide first undef
             else {
                 DTRACE(tout << "decide in process boolean clause\n";);
-                decide(cls[first_undef]);
+                if(m_enable_decide_easier_literal) {
+                    decide(cls[lowest_activity_index]);
+                }
+                else if(m_enable_decide_random_literal) {
+                    decide(cls[random_literal_index]);
+                }
+                else  {
+                    decide(cls[first_undef]);
+                }
             }
             return true;
         }
@@ -1656,7 +1697,14 @@ namespace nlsat {
             }
             unsigned num_undef = 0;
             unsigned first_undef = UINT_MAX;
+            unsigned lowest_activity_index = UINT_MAX;
+            double lowest_activity = 0.0;
+            unsigned random_literal_index = UINT_MAX;
+
             interval_set_ref first_undef_set(m_ism);
+            interval_set_ref lowest_activity_set(m_ism);
+            interval_set_ref random_literal_set(m_ism);
+
             interval_set * xk_set = m_infeasible[m_xk];
             SASSERT(!m_ism.is_full(xk_set));
             for(unsigned idx = 0; idx < cls.size(); idx++){
@@ -1702,6 +1750,18 @@ namespace nlsat {
                     first_undef = idx;
                     first_undef_set = curr_st;
                 }
+                double curr_literal_activity = m_dm.get_literal_activity(l);
+                // ^ update lowest activity literal
+                if(lowest_activity_index == UINT_MAX || curr_literal_activity < lowest_activity) {
+                    lowest_activity = curr_literal_activity;
+                    lowest_activity_index = idx;
+                    lowest_activity_set = curr_st;
+                }
+                random_gen r(++m_random_seed);
+                if(r() % num_undef == 0) {
+                    random_literal_index = idx;
+                    random_literal_set = curr_st;
+                }
             }
             if(num_undef == 0){
                 return false;
@@ -1713,8 +1773,18 @@ namespace nlsat {
                 updt_infeasible(first_undef_set);
             }
             else if(satisfy_learned || !cls.is_learned() || m_lazy == 0){
-                decide(cls[first_undef]);
-                updt_infeasible(first_undef_set);
+                if(m_enable_decide_easier_literal) {
+                    decide(cls[lowest_activity_index]);
+                    updt_infeasible(lowest_activity_set);
+                }
+                else if(m_enable_decide_random_literal) {
+                    decide(cls[random_literal_index]);
+                    updt_infeasible(random_literal_set);
+                }
+                else {
+                    decide(cls[first_undef]);
+                    updt_infeasible(first_undef_set);
+                }
             }
             else {
                 TRACE("nlsat_lazy", tout << "skipping clause, satisfy_learned: " << satisfy_learned << ", cls.is_learned(): " << cls.is_learned()
@@ -2084,6 +2154,7 @@ namespace nlsat {
             checkpoint();
             bool_var b  = antecedent.var();
             // wzh vsids
+            m_dm.insert_conflict_literal(antecedent);
             var_vector vec;
             m_dm.insert_conflict_from_bool(b);
             // hzw vsids
@@ -2133,6 +2204,7 @@ namespace nlsat {
             TRACE("nlsat_proof_sk", tout << "resolving "; if (b != null_bool_var) tout << "b" << b; tout << "\n"; display_abst(tout, sz, c); tout << "\n";); 
 
            m_dm.insert_conflict_from_literals(sz, c);
+           m_dm.insert_conflict_literals(sz, c);
 
             for (unsigned i = 0; i < sz; i++) {
                 if (c[i].var() != b)
@@ -2174,6 +2246,7 @@ namespace nlsat {
                 m_lazy_clause.push_back(~jst.lit(i));
 
             m_dm.insert_conflict_from_literals(m_lazy_clause.size(), m_lazy_clause.data());
+            m_dm.insert_conflict_literals(m_lazy_clause.size(), m_lazy_clause.data());
             
             // lazy clause is a valid clause
             TRACE("nlsat_mathematica", display_mathematica_lemma(tout, m_lazy_clause.size(), m_lazy_clause.data()););            
@@ -2347,6 +2420,7 @@ namespace nlsat {
             );
             // wzh vsids
             m_dm.reset_conflict_vars();
+            m_dm.reset_conflict_literals();
             // hzw vsids
             m_conflicts++;
             m_dm.inc_curr_conflicts();
@@ -2408,6 +2482,7 @@ namespace nlsat {
                 DTRACE(tout << "[debug] current m_xk: " << m_xk << std::endl;);
 
                 m_dm.bump_conflict_hybrid_vars();
+                m_dm.bump_conflict_literals();
 
                 DTRACE(m_dm.display_var_stage(tout);
                     tout << "curr stage: " << m_curr_stage << std::endl;
@@ -2582,6 +2657,7 @@ namespace nlsat {
 
             // wzh vsids
             m_dm.hybrid_decay_act();
+            m_dm.literal_decay_act();
             m_dm.clause_decay_act();
             // hzw vsids
 
@@ -4548,6 +4624,10 @@ namespace nlsat {
 
     std::ostream & solver::display_bool_assignment(std::ostream & out) const {
         return m_imp->display_bool_assignment(out);
+    }
+
+    bool solver::enable_unit_propagate() const {
+        return m_imp->enable_unit_propagate();
     }
     // dnlsat
 };

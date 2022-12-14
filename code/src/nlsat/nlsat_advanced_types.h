@@ -3,6 +3,7 @@
 #include "nlsat/nlsat_types.h"
 #include "nlsat/nlsat_interval_set.h"
 #include "util/hashtable.h"
+#include "nlsat/nlsat_solver.h"
 
 namespace nlsat {
     using stage_var                    =                    var;
@@ -33,6 +34,69 @@ namespace nlsat {
     using hybrid_var_pair              =                    std::pair<var, var>;
     using var_vector_vector            =                    vector<var_vector>;
     using var_table_vector             =                    vector<var_table>;
+
+    // hashtable for literal
+    struct literal_hash {
+        unsigned operator()(literal l) const {
+            return l.hash();
+        }
+    };
+
+    struct literal_eq {
+        bool operator()(literal l1, literal l2) const {
+            return l1 == l2;
+        }
+    };
+
+    using literal_table                =                    hashtable<literal, literal_hash, literal_eq>;
+    
+    // manage literal activity
+    class literal_activity_table {
+    private:
+        literal_vector m_literals;
+        double_vector m_literal_activity;
+        solver  &     m_solver;
+    public:
+        literal_activity_table(solver & s): m_solver(s) {}
+        // return index
+        unsigned register_literal(literal l) {
+            SASSERT(m_literals.size() == m_literal_activity.size());
+            for(unsigned i = 0; i < m_literals.size(); i++) {
+                if(m_literals[i] == l) {
+                    return i;
+                }
+            }
+            m_literals.push_back(l);
+            m_literal_activity.push_back(0.0);
+            return m_literals.size() - 1;
+        }
+
+        unsigned size() const {
+            SASSERT(m_literals.size() == m_literal_activity.size());
+            return m_literals.size();
+        }
+
+        void bump_literal_activity(literal l, double inc) {
+            unsigned index = register_literal(l);
+            if((m_literal_activity[index] += inc) > 1e100) {
+                for(unsigned i = 0; i < m_literal_activity.size(); i++) {
+                    m_literal_activity[index] *= 1e-100;
+                }
+            }
+        }
+
+        double get_literal_activity(literal l) {
+            unsigned index = register_literal(l);
+            return m_literal_activity[index];
+        }
+
+        std::ostream & display(std::ostream & out) const {
+            for(unsigned i = 0; i < m_literals.size(); i++) {
+                out << "literal " << i << " "; m_solver.display(out, m_literals[i]); out << " -> " << m_literal_activity[i] << std::endl;
+            }
+            return out;
+        }
+    };
 
     /**
      * @brief atom class

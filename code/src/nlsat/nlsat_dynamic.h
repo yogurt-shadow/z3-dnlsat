@@ -56,7 +56,7 @@ namespace nlsat {
     private:
         imp * m_imp;
     public:
-        Dynamic_manager(anum_manager & am, pmanager & pm, assignment & ass, evaluator & eva, interval_set_manager & ism, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
+        Dynamic_manager(nlsat_clause_vector & nlsat_clauses, nlsat_atom_vector & nlsat_atoms, anum_manager & am, pmanager & pm, assignment & ass, evaluator & eva, interval_set_manager & ism, svector<lbool> const & bvalues, bool_var_vector const & pure_bool_vars, bool_var_vector const & pure_bool_convert, solver & s, clause_vector const & clauses, clause_vector & learned, 
         atom_vector const & atoms, unsigned & restart, unsigned & deleted, unsigned rand_seed);
         ~Dynamic_manager();
 
@@ -93,9 +93,14 @@ namespace nlsat {
         hybrid_var get_stage_var(stage_var x) const;
         void pop_last_var();
 
-        var vsids_select(bool & is_bool);
+        var heap_select(bool & is_bool);
         void bump_conflict_hybrid_vars();
+        void bump_conflict_literals();
+
         void hybrid_decay_act();
+        void literal_decay_act();
+
+        double get_literal_activity(literal l);
 
         // for bool var: atom index
         void do_watched_clauses(hybrid_var x, bool is_bool);
@@ -112,8 +117,11 @@ namespace nlsat {
         void clause_decay_act();
 
         void reset_conflict_vars();
+        void reset_conflict_literals();
         void insert_conflict_from_bool(bool_var b);
         void insert_conflict_from_literals(unsigned sz, literal const * ls);
+        void insert_conflict_literal(literal l);
+        void insert_conflict_literals(unsigned sz, literal const * ls);
 
         var find_stage(hybrid_var x, bool is_bool) const;
         var max_stage_literal(literal l) const;
@@ -138,5 +146,7 @@ namespace nlsat {
 
         std::ostream & display_assigned_vars(std::ostream & out) const;
         std::ostream & display_var_stage(std::ostream &) const;
+        std::ostream & display_hybrid_activity(std::ostream &) const;
+        std::ostream & display_literal_activity(std::ostream &);
     };
 };

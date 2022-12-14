@@ -47,7 +47,7 @@ namespace nlsat {
             m_solver.dec_ref(m_lits[i]);
             m_lits[i] = l;
         }
-        literal const * data() const { return m_lits.data(); }
+        literal * data() const { return m_lits.data(); }
         literal const * begin() const { return m_lits.begin(); }
         literal const * end() const { return m_lits.end(); }
         void shrink(unsigned new_sz) {
